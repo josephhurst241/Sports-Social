@@ -1,0 +1,7 @@
+#!/bin/bash
+# PreCompact hook: before Claude Code compacts the conversation, append the
+# current to-do list and the uncommitted change summary to
+# .context/active-work.md, so the work in progress survives compaction.
+cd "${CLAUDE_PROJECT_DIR:-$(dirname "$0")/../..}" || exit 0
+[ -f TODO.md ] && cat TODO.md >> .context/active-work.md
+git diff --stat >> .context/active-work.md
