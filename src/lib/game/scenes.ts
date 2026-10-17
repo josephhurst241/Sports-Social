@@ -1,7 +1,8 @@
 import type { IslandId } from "@/lib/hub/islands";
 import { broadcast } from "@/lib/net/host";
 import type { PlayerSlot } from "@/lib/net/protocol";
-import { useGameStore, type SceneId } from "@/store/gameStore";
+import { narrate } from "@/lib/narrator/events";
+import { playerName, useGameStore, type SceneId } from "@/store/gameStore";
 import { PLAYER_Z, game as pingpong } from "@/lib/games/pingpong";
 import { placeRig, rigs } from "./rig";
 
@@ -37,6 +38,8 @@ export function enterGame(id: IslandId) {
     pingpong.phaseAt = performance.now();
     pingpong.server = 0;
     pingpong.pointsPlayed = 0;
+    pingpong.deficit = [0, 0];
+    pingpong.calledMatchPoint = null;
     useGameStore.setState({ pingpong: { score: [0, 0], rally: 0, cpu: !s.players[1].connected } });
   } else if (id === "bowling") {
     // Two phones in now means two bowlers taking turns, a frame each. The lane places them.
@@ -46,6 +49,14 @@ export function enterGame(id: IslandId) {
     useGameStore.setState({ golf: { hole: 0, turn: first, players: two, strokes: 0, cards: [[], []], over: false } });
   }
   setScene(id);
+  // Who is playing: ping pong is always two (the CPU stands in); bowling and golf are one or two.
+  const players =
+    id === "pingpong"
+      ? `${playerName(0)} and ${p2 ? playerName(1) : "the CPU"}`
+      : two === 2
+        ? `${playerName(0)} and ${playerName(1)}`
+        : playerName(first);
+  narrate({ type: "matchStart", game: id, players });
 }
 
 export function exitToHub() {

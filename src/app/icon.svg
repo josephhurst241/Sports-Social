@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- The Sports Social mark (src/components/brand/Logo.tsx) in the hub's colors -->
+  <defs>
+    <clipPath id="c"><circle cx="24" cy="32" r="17"/><circle cx="40" cy="32" r="17"/></clipPath>
+    <linearGradient id="s" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff" stop-opacity=".75"/><stop offset=".5" stop-color="#fff" stop-opacity="0"/>
+    </linearGradient>
+    <radialGradient id="d" cx=".5" cy=".15" r=".95">
+      <stop offset=".6" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".28"/>
+    </radialGradient>
+  </defs>
+  <circle cx="24" cy="32" r="17" fill="#2b6a85"/>
+  <circle cx="40" cy="32" r="17" fill="#2b6a85" fill-opacity=".55"/>
+  <g clip-path="url(#c)">
+    <rect width="64" height="64" fill="url(#d)"/>
+    <ellipse cx="32" cy="22" rx="30" ry="12" fill="url(#s)"/>
+  </g>
+  <circle cx="24" cy="32" r="16.25" fill="none" stroke="#fff" stroke-opacity=".6"/>
+  <circle cx="40" cy="32" r="16.25" fill="none" stroke="#fff" stroke-opacity=".6"/>
+</svg>

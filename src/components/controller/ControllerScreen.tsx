@@ -13,9 +13,11 @@ import {
   stepButtons,
   type ButtonScene,
 } from "@/lib/input/buttons";
+import Logo from "@/components/brand/Logo";
+import Splash from "@/components/brand/Splash";
 import { themeVars } from "@/lib/game/theme";
 import { connectToHost, type ClientLink } from "@/lib/net/client";
-import { P, PACKET_FLOATS, PLAYER_COLORS, PLAYER_NAMES, SEND_HZ, type PlayerSlot } from "@/lib/net/protocol";
+import { P, PACKET_FLOATS, PLAYER_COLORS, SEND_HZ, type PlayerSlot } from "@/lib/net/protocol";
 import {
   createSensorState,
   requestMotionPermission,
@@ -23,7 +25,9 @@ import {
   startSimulatedSensors,
   type SensorState,
 } from "@/lib/sensors/motion";
+import { initAccount, saveResult, useAccount } from "@/lib/account/account";
 import { useGameStore } from "@/store/gameStore";
+import { AccountChip, ProfileSheet, SignInSheet, Toast } from "./Account";
 
 // The phone. Step 1: the room code and "Start". Step 2, one of two inputs:
 //
@@ -65,6 +69,12 @@ export default function ControllerScreen() {
   const slot = useGameStore((s) => s.mySlot);
   const scene = useGameStore((s) => s.clientScene);
   const turn = useGameStore((s) => s.clientTurn);
+  const names = useGameStore((s) => s.clientNames);
+  const account = useAccount();
+  // The test pad can stand in for a signed-in name (?sim=1&name=Ana); it saves nothing.
+  const simName = sim ? params.get("name") : null;
+  const [sheet, setSheet] = useState<"signin" | "profile" | null>(null);
+  const [toast, setToast] = useState<{ text: string; action?: "signin" } | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
   const [grip, setGrip] = useState(false);
 
@@ -131,6 +141,55 @@ export default function ControllerScreen() {
       }
     });
   }, [code, sim, applyMode, startSensors]);
+
+  // Accounts: restore the session (or find accounts are off).
+  useEffect(() => initAccount(), []);
+
+  // The test pad shows the phone's state to scripts, as window.__glass does on the laptop.
+  useEffect(() => {
+    if (sim) (window as unknown as { __phone: unknown }).__phone = { store: useGameStore, account: useAccount };
+  }, [sim]);
+
+  // Tell the laptop who is playing whenever the link comes up or the player signs in or out.
+  useEffect(() => {
+    if (status !== "connected") return;
+    const user = account.user;
+    link.current?.control({ t: "profile", id: user?.id ?? null, name: user?.name ?? simName ?? null });
+  }, [status, account.user, simName]);
+
+  // A finished game from the laptop: save it to the career, or invite a guest to sign in.
+  const result = useGameStore((s) => s.clientResult);
+  useEffect(() => {
+    if (!result) return;
+    const { status: acc } = useAccount.getState();
+    if (acc === "signed-in") {
+      saveResult(result.result).then((err) => setToast({ text: err ? `Not saved: ${err}` : "Saved to your career" }));
+    } else if (acc === "guest") {
+      setToast({ text: "Keep your scores?", action: "signin" });
+    }
+  }, [result]);
+  useEffect(() => {
+    if (!toast) return;
+    const id = setTimeout(() => setToast(null), 5000);
+    return () => clearTimeout(id);
+  }, [toast]);
+
+  const overlays = (
+    <>
+      {sheet === "signin" && <SignInSheet onClose={() => setSheet(null)} />}
+      {sheet === "profile" && <ProfileSheet onClose={() => setSheet(null)} />}
+      {toast && (
+        <Toast
+          text={toast.text}
+          action={toast.action ? "Sign in" : undefined}
+          onAction={() => {
+            setToast(null);
+            setSheet("signin");
+          }}
+        />
+      )}
+    </>
+  );
 
   // Tell the laptop which input this phone uses whenever the link comes up.
   useEffect(() => {
@@ -236,7 +295,7 @@ export default function ControllerScreen() {
           }}
         />
         <header className="relative z-10 flex items-center justify-between gap-3 px-5 pt-5 pb-3">
-          <div className="flex items-center gap-2">
+          <div className="flex min-w-0 items-center gap-2">
             {scene !== "hub" ? (
               <button
                 className="panel rounded-full px-4 py-2 text-[15px] font-semibold active:opacity-70"
@@ -245,8 +304,9 @@ export default function ControllerScreen() {
                 ‹ Hub
               </button>
             ) : (
-              <span className="text-[17px] font-semibold">{PLAYER_NAMES[slot]}</span>
+              !account.user && <span className="truncate text-[17px] font-semibold">{names[slot]}</span>
             )}
+            <AccountChip onOpen={setSheet} />
           </div>
           <Segmented value={mode} onChange={chooseMode} />
         </header>
@@ -254,7 +314,7 @@ export default function ControllerScreen() {
 
         {mode === "buttons" ? (
           waitingFor !== null ? (
-            <Waiting slot={waitingFor} />
+            <Waiting slot={waitingFor} name={names[waitingFor]} />
           ) : (
             <ButtonPad scene={scene as ButtonScene} state={buttons.current} />
           )
@@ -274,7 +334,7 @@ export default function ControllerScreen() {
             <div />
             <div className="px-8 text-center">
               <div className={`text-[34px] font-semibold tracking-tight ${grip ? "text-accent-ink" : "text-ink"}`}>
-                {waitingFor !== null ? `${PLAYER_NAMES[waitingFor]}'s turn` : grip ? "Gripping" : "Touch to grip"}
+                {waitingFor !== null ? `${names[waitingFor]}'s turn` : grip ? "Gripping" : "Touch to grip"}
               </div>
               <div className="mt-3 text-[17px] leading-snug text-ink-2">
                 {waitingFor !== null ? "You're up next. Watch the laptop." : (MOTION_HINTS[scene] ?? MOTION_HINTS.hub)}
@@ -291,6 +351,7 @@ export default function ControllerScreen() {
             </div>
           </div>
         )}
+        {overlays}
       </main>
     );
   }
@@ -309,7 +370,12 @@ export default function ControllerScreen() {
   return (
     <main className="fixed inset-0 flex flex-col items-center justify-center bg-white px-8 select-none">
       <div className="w-full max-w-sm">
-        <h1 className="text-[34px] leading-tight font-semibold tracking-tight">Sports Social</h1>
+        <h1>
+          <Logo size={68} wordmark />
+        </h1>
+        <div className="mt-3">
+          <AccountChip onOpen={setSheet} />
+        </div>
         <p className="mt-2 text-[17px] text-ink-2">Your phone is the controller.</p>
 
         <label className="mt-12 block text-[13px] font-semibold text-ink-3" htmlFor="code">
@@ -339,6 +405,9 @@ export default function ControllerScreen() {
 
         <p className="mt-4 min-h-[3em] text-center text-[15px] leading-snug text-ink-2">{message}</p>
       </div>
+
+      {overlays}
+      <Splash variant="phone" />
     </main>
   );
 }
@@ -401,7 +470,7 @@ function HoldButton({
 }
 
 /** Shown instead of the buttons while the other player takes their turn. */
-function Waiting({ slot }: { slot: PlayerSlot }) {
+function Waiting({ slot, name }: { slot: PlayerSlot; name: string }) {
   return (
     <div className="relative z-10 flex flex-1 flex-col px-5 pb-6">
       <div className="panel flex flex-1 flex-col items-center justify-center rounded-[36px] text-center">
@@ -409,7 +478,7 @@ function Waiting({ slot }: { slot: PlayerSlot }) {
           className="h-3 w-3 rounded-full shadow-[inset_0_0_0_1px_rgb(0_0_0/0.14)]"
           style={{ background: PLAYER_COLORS[slot] }}
         />
-        <span className="mt-4 text-[34px] font-semibold tracking-tight">{PLAYER_NAMES[slot]}&apos;s turn</span>
+        <span className="mt-4 text-[34px] font-semibold tracking-tight">{name}&apos;s turn</span>
         <span className="mt-2 text-[15px] text-ink-2">You&apos;re up next. Watch the laptop.</span>
       </div>
     </div>

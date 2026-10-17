@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
+import { INTRO_SCRIPT } from "@/components/brand/intro";
 import "./globals.css";
 
 // SF Pro is used where the OS ships it (Apple devices); Inter everywhere else.
@@ -20,7 +21,11 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en">
+    // INTRO_SCRIPT sets <html data-intro> before paint, so React must not object to it.
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: INTRO_SCRIPT }} />
+      </head>
       <body className={`${inter.variable} antialiased`}>{children}</body>
     </html>
   );

@@ -2,13 +2,15 @@
 
 import { useFrame } from "@react-three/fiber";
 import { BallCollider, CuboidCollider, RigidBody, useRapier, type RapierRigidBody } from "@react-three/rapier";
-import { useEffect, useRef } from "react";
-import { MathUtils, Vector3, type Mesh } from "three";
+import { useEffect, useRef, type RefObject } from "react";
+import { MathUtils, Vector3, type Group, type Mesh } from "three";
 import { placeRig, rigs } from "@/lib/game/rig";
 import { setView } from "@/lib/game/view";
-import { BALL_R, CUP_R, CUP_SPEED, HOLES, scoreName } from "@/lib/games/golf";
-import { PLAYER_NAMES, type PlayerSlot } from "@/lib/net/protocol";
-import { callout, nextTurn, useGameStore } from "@/store/gameStore";
+import { BALL_R, CUP_G, CUP_R, HOLES, PAR, cupOutcome, scoreName, type CupPass } from "@/lib/games/golf";
+import type { PlayerSlot } from "@/lib/net/protocol";
+import { sendResult } from "@/lib/net/host";
+import { narrate } from "@/lib/narrator/events";
+import { callout, nextTurn, playerName, useGameStore } from "@/store/gameStore";
 import { PUTTER } from "../Avatar";
 import Floor from "../Floor";
 import { BackgroundGlass, Glass } from "../Glass";
@@ -31,9 +33,17 @@ const STOP_SPEED = 0.05;
 /** Rolling resistance of the turf, m/s² (on top of light damping): a 4 m/s putt rolls about 6 m. */
 export const ROLL_DECEL = 1.1;
 const NEXT_HOLE_MS = 2600;
+/** A putt sunk from at least this far (m) is a long one for the narrator. */
+const LONG_PUTT = 3;
+/** After crossing the hole: how long the ball takes to sink, ride the rim, or come down from a hop, s. */
+const CUP_AFTER = { drop: 0.25, lip: 0.2, hop: 0.14 };
+/** How high a hop lifts the ball above the turf, m. */
+const HOP_H = 0.025;
+const UP = new Vector3(0, 1, 0);
 
 export const golfState = {
-  phase: "aim" as "aim" | "address" | "rolling" | "holed" | "next" | "over",
+  // "cup": the ball is crossing the hole (see cupOutcome), played out along a scripted path.
+  phase: "aim" as "aim" | "address" | "rolling" | "cup" | "holed" | "next" | "over",
   phaseAt: 0,
   /** Where the next stroke is taken from (and where an out-of-bounds ball returns). */
   lie: new Vector3(),
@@ -44,11 +54,25 @@ export const golfState = {
   prevHead: new Vector3(),
   stillSince: 0,
   lastSpeed: 0,
+  /** How far from the cup the current stroke was struck, m (for calling a long putt). */
+  puttFrom: 0,
+  /** The ball's center last frame: a fast ball can cross the whole hole between two frames. */
+  prevBall: new Vector3(),
+  /** Off from a lip-out or hop until the ball is clear of the rim, so one pass over the cup counts once. */
+  cupArmed: true,
+  /** The pass over the cup being played out (phase "cup"). */
+  cup: { kind: "drop" as CupPass["kind"], t0: 0, entry: new Vector3(), dir: new Vector3(), speed: 0, cross: 0, turn: 0, keep: 0 },
+  /** The last pass over the cup, for the headless check. */
+  lastCup: null as { kind: CupPass["kind"]; speed: number; offset: number } | null,
+  /** When the ball last met the rim: the flag wobbles. */
+  flagHitAt: -Infinity,
+  /** Rolls the ball from (x, z) at (vx, vz) m/s, for scripts/check.mjs. Set while the green is mounted. */
+  launch: null as ((x: number, z: number, vx: number, vz: number) => void) | null,
 };
 
 const yawTo = (fromX: number, fromZ: number, toX: number, toZ: number) => Math.atan2(-(toX - fromX), -(toZ - fromZ));
 
-function Green({ hole }: { hole: number }) {
+function Green({ hole, flag }: { hole: number; flag: RefObject<Group | null> }) {
   const h = HOLES[hole];
   const [w, d] = h.size;
   return (
@@ -91,14 +115,17 @@ function Green({ hole }: { hole: number }) {
         <circleGeometry args={[CUP_R, 40]} />
         <meshBasicMaterial color="#1c2a22" />
       </mesh>
-      <mesh position={[h.cup[0], 0.6, h.cup[1]]}>
-        <cylinderGeometry args={[0.01, 0.01, 1.2, 10]} />
-        <meshStandardMaterial color="#ffffff" roughness={0.3} />
-      </mesh>
-      <mesh position={[h.cup[0] + 0.16, 1.08, h.cup[1]]}>
-        <boxGeometry args={[0.3, 0.2, 0.01]} />
-        <Glass tint="#ff8fc7" />
-      </mesh>
+      {/* Pivots at its foot, so a ball meeting the rim can make it wobble */}
+      <group ref={flag} position={[h.cup[0], 0, h.cup[1]]}>
+        <mesh position={[0, 0.6, 0]}>
+          <cylinderGeometry args={[0.01, 0.01, 1.2, 10]} />
+          <meshStandardMaterial color="#ffffff" roughness={0.3} />
+        </mesh>
+        <mesh position={[0.16, 1.08, 0]}>
+          <boxGeometry args={[0.3, 0.2, 0.01]} />
+          <Glass tint="#ff8fc7" />
+        </mesh>
+      </group>
       {/* Tee marker */}
       <mesh position={[h.tee[0], 0.001, h.tee[1]]} rotation-x={-Math.PI / 2}>
         <ringGeometry args={[0.06, 0.08, 32]} />
@@ -112,9 +139,10 @@ export default function Golf() {
   const { rapier } = useRapier();
   const ball = useRef<RapierRigidBody>(null);
   const aimLine = useRef<Mesh>(null);
+  const flag = useRef<Group>(null);
   const hole = useGameStore((s) => s.golf.hole);
   const turn = useGameStore((s) => s.golf.turn);
-  const s = useRef({ head: new Vector3(), down: new Vector3(), fwd: new Vector3(), tmp: new Vector3() }).current;
+  const s = useRef({ head: new Vector3(), down: new Vector3(), fwd: new Vector3(), tmp: new Vector3(), rim: new Vector3() }).current;
 
   const setPhase = (p: typeof golfState.phase) => {
     golfState.phase = p;
@@ -132,6 +160,8 @@ export default function Golf() {
     rb.setTranslation({ x: lie.x, y: BALL_R, z: lie.z }, true);
     rb.setLinvel({ x: 0, y: 0, z: 0 }, true);
     rb.setAngvel({ x: 0, y: 0, z: 0 }, true);
+    golfState.prevBall.set(lie.x, 0, lie.z);
+    golfState.cupArmed = true;
     golfState.baseYaw = yawTo(lie.x, lie.z, h.cup[0], h.cup[1]);
     // Stand so the putter head hangs just behind the ball (it hangs 0.24 m to
     // the player's right and slightly ahead of the feet).
@@ -143,6 +173,82 @@ export default function Golf() {
     placeRig((1 - turn) as PlayerSlot, x - Math.cos(f) * 1.6, 0, z + Math.sin(f) * 1.6, f, "pendulum");
     golfState.prevGrip = rigs[turn].grip;
     setPhase("aim");
+  };
+
+  /** Sets the ball rolling from (x, z) along unit (dirX, dirZ) at `v` m/s, with matching topspin (no skid). */
+  const roll = (x: number, z: number, dirX: number, dirZ: number, v: number) => {
+    const rb = ball.current;
+    if (!rb) return;
+    rb.setBodyType(rapier.RigidBodyType.Dynamic, true);
+    rb.setTranslation({ x, y: BALL_R, z }, true);
+    rb.setLinvel({ x: dirX * v, y: 0, z: dirZ * v }, true);
+    // Spin axis = up x direction, rate v / r.
+    rb.setAngvel({ x: dirZ * (v / BALL_R), y: 0, z: -dirX * (v / BALL_R) }, true);
+    golfState.prevBall.set(x, 0, z);
+    golfState.stillSince = 0;
+    setPhase("rolling");
+  };
+
+  useEffect(() => {
+    golfState.launch = (x, z, vx, vz) => {
+      const v = Math.hypot(vx, vz);
+      golfState.cupArmed = true;
+      const [cx, cz] = HOLES[useGameStore.getState().golf.hole].cup;
+      golfState.puttFrom = Math.hypot(x - cx, z - cz);
+      if (v > 0) roll(x, z, vx / v, vz / v, v);
+    };
+    return () => {
+      golfState.launch = null;
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /** In the cup: card the stroke and call it, then on to the next turn or hole (or the end). */
+  const holeOut = () => {
+    const rb = ball.current;
+    const g = useGameStore.getState().golf;
+    const h = HOLES[g.hole];
+    if (!rb) return;
+    rb.setBodyType(rapier.RigidBodyType.KinematicPositionBased, true);
+    rb.setTranslation({ x: h.cup[0], y: -0.06, z: h.cup[1] }, true);
+    const strokes = g.strokes;
+    const cards: typeof g.cards = [...g.cards];
+    cards[g.turn] = [...g.cards[g.turn], strokes];
+    // Over once nobody is left to play this hole and it was the last one.
+    const waiting = nextTurn(g.turn, g.players, (p) => cards[p].length > g.hole) !== g.turn;
+    const over = !waiting && g.hole === HOLES.length - 1;
+    useGameStore.setState({ golf: { ...g, cards, over } });
+
+    // The narrator: how the hole went, then the round's result.
+    const name = playerName(g.turn);
+    const d = strokes - h.par;
+    if (strokes === 1) narrate({ type: "holeInOne", name });
+    else if (golfState.puttFrom >= LONG_PUTT) narrate({ type: "longPutt", name, meters: Math.round(golfState.puttFrom), result: scoreName(strokes, h.par) });
+    else narrate({ type: "hole", name, strokes, result: d <= -2 ? "eagle" : d === -1 ? "birdie" : d === 0 ? "par" : d === 1 ? "bogey" : "over" });
+    const total = (p: PlayerSlot) => cards[p].reduce((n, x) => n + x, 0);
+    if (over) {
+      // Each golfer's card, for their career (won: only with two golfers; fewest strokes).
+      for (const p of g.players === 2 ? ([0, 1] as const) : [g.turn]) {
+        if (!cards[p].length) continue;
+        const won = g.players === 2 ? total(p) < total((1 - p) as PlayerSlot) : undefined;
+        sendResult(p, { game: "golf", strokes: cards[p], par: HOLES.slice(0, cards[p].length).map((x) => x.par), holes: HOLES.length, won });
+      }
+    }
+    if (over && g.players === 2) {
+      const [a, b] = [total(0), total(1)];
+      narrate({ type: "matchEnd", game: "golf", winner: a === b ? null : playerName(a < b ? 0 : 1), score: `${Math.min(a, b)} to ${Math.max(a, b)}` });
+    } else if (over) {
+      const vsPar = total(g.turn) - PAR;
+      narrate({ type: "matchEnd", game: "golf", winner: name, score: `${total(g.turn)} strokes, ${vsPar === 0 ? "level par" : vsPar < 0 ? `${-vsPar} under` : `${vsPar} over`}`, solo: true });
+    }
+
+    if (over && g.players === 2) {
+      const [a, b] = [total(0), total(1)];
+      // Fewest strokes wins.
+      callout(a === b ? `Tied · ${a} strokes each` : `${playerName(a < b ? 0 : 1)} wins · ${Math.min(a, b)} to ${Math.max(a, b)}`);
+    } else {
+      callout(`${scoreName(strokes, h.par)} · ${strokes} stroke${strokes === 1 ? "" : "s"}`);
+    }
+    setPhase(over ? "over" : "holed");
   };
 
   // New hole, or the next player on this one: ball on the tee.
@@ -202,15 +308,10 @@ export default function Golf() {
             callout("Swing the putter forward, then let go");
             setPhase("aim");
           } else {
-            const v = Math.min(PUTT_MAX, speed);
-            rb.setBodyType(rapier.RigidBodyType.Dynamic, true);
-            rb.setLinvel({ x: s.fwd.x * v, y: 0, z: s.fwd.z * v }, true);
-            // Topspin to match, so it rolls from the start instead of skidding:
-            // spin axis = up x direction, rate v / r.
-            rb.setAngvel({ x: s.fwd.z * (v / BALL_R), y: 0, z: -s.fwd.x * (v / BALL_R) }, true);
+            golfState.puttFrom = Math.hypot(t.x - h.cup[0], t.z - h.cup[1]);
+            // Topspin to match, so it rolls from the start instead of skidding.
+            roll(t.x, t.z, s.fwd.x, s.fwd.z, Math.min(PUTT_MAX, speed));
             useGameStore.setState({ golf: { ...g, strokes: g.strokes + 1 } });
-            golfState.stillSince = 0;
-            setPhase("rolling");
           }
         }
       }
@@ -222,26 +323,45 @@ export default function Golf() {
         const k = Math.max(0, speed - ROLL_DECEL * Math.min(delta, 0.05)) / speed;
         rb.setLinvel({ x: lv.x * k, y: lv.y, z: lv.z * k }, true);
       }
-      const toCup = Math.hypot(t.x - h.cup[0], t.z - h.cup[1]);
-      if (toCup < CUP_R && speed < CUP_SPEED) {
-        // In the cup.
+      const [cx, cz] = h.cup;
+      if (!golfState.cupArmed && Math.hypot(t.x - cx, t.z - cz) > CUP_R + BALL_R) golfState.cupArmed = true;
+      // Did the ball's center cross the rim since last frame? Along its line from
+      // last frame's spot: `along` to the point nearest the cup, `offset` to the side.
+      const p0 = golfState.prevBall;
+      const fx = speed > 1e-4 ? lv.x / speed : 0;
+      const fz = speed > 1e-4 ? lv.z / speed : 0;
+      const along = (cx - p0.x) * fx + (cz - p0.z) * fz;
+      const offset = (cx - p0.x) * -fz + (cz - p0.z) * fx;
+      const half = Math.sqrt(Math.max(0, CUP_R * CUP_R - offset * offset));
+      const moved = (t.x - p0.x) * fx + (t.z - p0.z) * fz;
+      const crossed = golfState.cupArmed && speed > 1e-4 && Math.abs(offset) < CUP_R && along - half <= moved && along + half >= 0;
+      golfState.prevBall.set(t.x, 0, t.z);
+      if (crossed) {
+        // Over the hole: the cup model decides, and the ball plays it out on a scripted path.
+        const pass = cupOutcome(speed, offset);
+        const into = Math.max(0, along - half); // where it crossed the near rim, along the line
+        const c = golfState.cup;
+        c.kind = pass.kind;
+        c.t0 = now;
+        c.entry.set(p0.x + fx * into, BALL_R, p0.z + fz * into);
+        c.dir.set(fx, 0, fz);
+        c.speed = speed;
+        // Time across the rest of the hole; a drop only falls until it is a ball's depth down, then sinks.
+        const left = (along + half - into) / speed;
+        c.cross = pass.kind === "drop" ? Math.min(left, Math.sqrt((2 * BALL_R) / CUP_G)) : left;
+        c.turn = pass.turn;
+        c.keep = pass.keep;
+        golfState.lastCup = { kind: pass.kind, speed, offset };
+        golfState.flagHitAt = now;
         rb.setBodyType(rapier.RigidBodyType.KinematicPositionBased, true);
-        rb.setTranslation({ x: h.cup[0], y: -0.06, z: h.cup[1] }, true);
-        const strokes = g.strokes;
-        const cards: typeof g.cards = [...g.cards];
-        cards[g.turn] = [...g.cards[g.turn], strokes];
-        // Over once nobody is left to play this hole and it was the last one.
-        const waiting = nextTurn(g.turn, g.players, (p) => cards[p].length > g.hole) !== g.turn;
-        const over = !waiting && g.hole === HOLES.length - 1;
-        useGameStore.setState({ golf: { ...g, cards, over } });
-        if (over && g.players === 2) {
-          const [a, b] = [cards[0].reduce((n, x) => n + x, 0), cards[1].reduce((n, x) => n + x, 0)];
-          // Fewest strokes wins.
-          callout(a === b ? `Tied · ${a} strokes each` : `${PLAYER_NAMES[a < b ? 0 : 1]} wins · ${Math.min(a, b)} to ${Math.max(a, b)}`);
-        } else {
-          callout(`${scoreName(strokes, h.par)} · ${strokes} stroke${strokes === 1 ? "" : "s"}`);
+        if (pass.kind === "lip") {
+          callout("Lipped out");
+          narrate({ type: "lipOut", name: playerName(g.turn) });
+        } else if (pass.kind === "hop") {
+          callout("Too fast");
+          narrate({ type: "tooFast", name: playerName(g.turn) });
         }
-        setPhase(over ? "over" : "holed");
+        setPhase("cup");
       } else if (t.y < -0.5) {
         callout("Out of bounds · +1 stroke");
         useGameStore.setState({ golf: { ...g, strokes: g.strokes + 1 } });
@@ -254,6 +374,47 @@ export default function Golf() {
           address();
         }
       }
+    } else if (golfState.phase === "cup") {
+      const c = golfState.cup;
+      const [cx, cz] = h.cup;
+      const e = (now - c.t0) / 1000;
+      if (e < c.cross) {
+        // Across the hole with no turf under it: falling.
+        s.tmp.copy(c.entry).addScaledVector(c.dir, c.speed * e);
+        s.tmp.y = BALL_R - 0.5 * CUP_G * e * e;
+        rb.setNextKinematicTranslation(s.tmp);
+      } else {
+        // Then what the far rim does with it.
+        const k = Math.min(1, (e - c.cross) / CUP_AFTER[c.kind as keyof typeof CUP_AFTER]);
+        const rimY = BALL_R - 0.5 * CUP_G * c.cross * c.cross;
+        s.rim.copy(c.entry).addScaledVector(c.dir, c.speed * c.cross); // where it met the far rim
+        if (c.kind === "drop") {
+          // Down and into the middle of the cup.
+          s.tmp.set(MathUtils.lerp(s.rim.x, cx, k), MathUtils.lerp(rimY, -0.06, k * k), MathUtils.lerp(s.rim.z, cz, k));
+        } else if (c.kind === "lip") {
+          // Rides the rim around (the way it was already heading round it) and climbs back out.
+          s.tmp.set(s.rim.x - cx, 0, s.rim.z - cz);
+          const way = Math.sign(s.tmp.z * c.dir.x - s.tmp.x * c.dir.z);
+          s.tmp.applyAxisAngle(UP, way * c.turn * k);
+          s.tmp.x += cx;
+          s.tmp.z += cz;
+          s.tmp.y = rimY + (BALL_R - rimY) * k;
+          if (k >= 1) c.dir.applyAxisAngle(UP, way * c.turn);
+        } else {
+          // Skims the far rim and hops on.
+          s.tmp.copy(s.rim).addScaledVector(c.dir, c.speed * c.keep * (e - c.cross));
+          s.tmp.y = rimY + (BALL_R - rimY) * k + HOP_H * Math.sin(Math.PI * k);
+        }
+        rb.setNextKinematicTranslation(s.tmp);
+        if (k >= 1) {
+          // Played out, exactly once: into the cup, or rolling on.
+          if (c.kind === "drop") holeOut();
+          else {
+            golfState.cupArmed = false;
+            roll(s.tmp.x, s.tmp.z, c.dir.x, c.dir.z, c.speed * c.keep);
+          }
+        }
+      }
     } else if (golfState.phase === "holed" && now - golfState.phaseAt > NEXT_HOLE_MS) {
       // Advance exactly once; the effect for the new hole or turn tees the ball up and sets "aim".
       // The other player plays this hole if they still have to, else on to the next hole, Player 1 first.
@@ -262,12 +423,20 @@ export default function Golf() {
       const first: PlayerSlot = g.players === 2 && useGameStore.getState().players[0].connected ? 0 : g.turn;
       const [hole, turn] = other !== g.turn ? [g.hole, other] : [g.hole + 1, first];
       useGameStore.setState({ golf: { ...g, hole, turn, strokes: 0 } });
-      if (g.players === 2) callout(`${hole === g.hole ? "" : `Hole ${hole + 1} · `}${PLAYER_NAMES[turn]} is up`);
+      if (g.players === 2) callout(`${hole === g.hole ? "" : `Hole ${hole + 1} · `}${playerName(turn)} is up`);
+      if (hole !== g.hole && hole === HOLES.length - 1) narrate({ type: "lastHole" });
+      else if (g.players === 2) narrate({ type: "turn", game: "golf", name: playerName(turn) });
     } else if (golfState.phase === "over" && pressed) {
       // Play again from hole 1 (the hole change re-tees the ball).
       setPhase("next");
       const first: PlayerSlot = g.players === 2 && useGameStore.getState().players[0].connected ? 0 : g.turn;
       useGameStore.setState({ golf: { ...g, hole: 0, turn: first, strokes: 0, cards: [[], []], over: false } });
+    }
+
+    // The flag wobbles when the ball meets the rim, and settles.
+    if (flag.current) {
+      const k = (now - golfState.flagHitAt) / 1000;
+      flag.current.rotation.z = k < 1.5 ? 0.1 * Math.sin(k * 20) * Math.exp(-k * 3.5) : 0;
     }
 
     // Aim line on the green while lining up a stroke.
@@ -280,8 +449,9 @@ export default function Golf() {
 
     // Camera behind the ball, looking along the stroke toward the cup.
     const f = golfState.baseYaw;
-    const bx = golfState.phase === "rolling" ? t.x : golfState.lie.x;
-    const bz = golfState.phase === "rolling" ? t.z : golfState.lie.z;
+    const moving = golfState.phase === "rolling" || golfState.phase === "cup";
+    const bx = moving ? t.x : golfState.lie.x;
+    const bz = moving ? t.z : golfState.lie.z;
     // Behind the ball, high and to the right, so the golfer (left of the ball) never blocks the line.
     const back = 4.4, right = 1.1;
     setView(
@@ -298,7 +468,7 @@ export default function Golf() {
   return (
     <>
       <Floor y={-0.05} />
-      <Green hole={hole} />
+      <Green hole={hole} flag={flag} />
       <mesh ref={aimLine} visible={false}>
         <planeGeometry args={[0.025, 1.2]} />
         <meshBasicMaterial color="#ffffff" transparent opacity={0.85} depthWrite={false} />

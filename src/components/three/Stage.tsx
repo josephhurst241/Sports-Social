@@ -15,7 +15,9 @@ import { useGameStore } from "@/store/gameStore";
 import Bowling, { bowl } from "./games/Bowling";
 import Golf, { golfState } from "./games/Golf";
 import PingPongScene from "./games/PingPongScene";
-import { game as pingpong } from "@/lib/games/pingpong";
+import { endRally, game as pingpong } from "@/lib/games/pingpong";
+import { narrate } from "@/lib/narrator/events";
+import { narratorState } from "@/lib/narrator/narrator";
 import Avatar from "./Avatar";
 import CameraRig from "./CameraRig";
 import Hub from "./Hub";
@@ -25,9 +27,9 @@ import { PHYSICS_STEP } from "./useKinematicFollow";
 // disc and game islands) and each game are separate scenes, swapped in and
 // out by the store's `scene`; the players and the camera carry over.
 
-/** Frame rate, store and game state on window.__glass, for scripts/check.mjs. */
+/** Frame rate, store, game state and the narrator's history on window.__glass, for scripts/check.mjs. */
 function DebugHandle() {
-  const s = useRef({ frames: 0, since: 0, debug: { fps: 0, store: useGameStore, rigs, bowl, golf: golfState, pingpong, enterGame, exitToHub } }).current;
+  const s = useRef({ frames: 0, since: 0, debug: { fps: 0, store: useGameStore, rigs, bowl, golf: golfState, pingpong, endRally, narrator: narratorState, narrate, enterGame, exitToHub } }).current;
   useEffect(() => {
     (window as unknown as { __glass: typeof s.debug }).__glass = s.debug;
   }, [s]);

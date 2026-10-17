@@ -82,3 +82,104 @@ body {
 @utility tabular {
   font-variant-numeric: tabular-nums;
 }
+
+/* The logo's sheen: a band of light that sweeps across the mark once, at
+   startup (`sweep`) and on hover. Off for reduced motion. */
+@keyframes logo-sheen {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(84px);
+  }
+}
+.logo-sweep {
+  transform: translateX(0);
+  opacity: 0;
+}
+.logo-sweep-run,
+.logo:hover .logo-sweep {
+  opacity: 1;
+  animation: logo-sheen 0.7s cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .logo-sweep-run,
+  .logo:hover .logo-sweep {
+    animation: none;
+    opacity: 0;
+  }
+}
+
+/* The startup animation (components/brand/Splash.tsx). Pure CSS so it plays
+   from the first paint: the mark scales in out of a blur, the sheen sweeps,
+   the wordmark rises, then the sheet fades (laptop by 1.5 s, phone by 0.9 s).
+   <html data-intro> is set before paint by INTRO_SCRIPT: "seen" hides it for
+   the rest of the session, "skip" (a tap or key) fades it at once. */
+.splash {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: #ffffff;
+  user-select: none;
+  animation: splash-out 0.35s ease 1.15s both;
+}
+.splash-phone {
+  animation-duration: 0.3s;
+  animation-delay: 0.6s;
+}
+html[data-intro="seen"] .splash {
+  display: none;
+}
+html[data-intro="skip"] .splash {
+  animation: splash-skip 0.2s ease both;
+}
+@keyframes splash-out {
+  to {
+    opacity: 0;
+    visibility: hidden;
+  }
+}
+@keyframes splash-skip {
+  to {
+    opacity: 0;
+    visibility: hidden;
+  }
+}
+.splash-mark {
+  animation: splash-mark 0.55s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.splash-word {
+  animation: splash-word 0.4s ease-out 0.25s both;
+}
+.splash .logo-sweep-run {
+  animation-delay: 0.3s;
+}
+@keyframes splash-mark {
+  from {
+    opacity: 0;
+    transform: scale(0.86);
+    filter: blur(10px);
+  }
+}
+@keyframes splash-word {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .splash-mark,
+  .splash-word {
+    animation-name: splash-fade;
+    animation-delay: 0s;
+  }
+}
+@keyframes splash-fade {
+  from {
+    opacity: 0;
+  }
+}

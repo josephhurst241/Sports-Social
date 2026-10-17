@@ -8,6 +8,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "test": "node --test \"src/**/*.test.ts\"",
     "play": "next build && next start -p ${PORT:-3000}"
   },
   "dependencies": {

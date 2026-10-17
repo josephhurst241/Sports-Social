@@ -7,6 +7,9 @@ Bowling or Golf. Next.js 16, React Three Fiber, Rapier, PeerJS (WebRTC), Zustand
 
 ## Run
 
+First time, or on Windows, or to turn on player accounts and leaderboards:
+see **[SETUP.md](SETUP.md)** for the full setup.
+
 ```bash
 npm install
 npm run dev      # HTTPS dev server on your Wi-Fi; phones need HTTPS for motion sensors

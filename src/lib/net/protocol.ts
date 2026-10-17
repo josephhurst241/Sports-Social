@@ -51,12 +51,26 @@ export type PlayerSlot = 0 | 1;
 export const PLAYER_COLORS = ["#00FFFF", "#FF00FF"] as const;
 export const PLAYER_NAMES = ["Player 1", "Player 2"] as const;
 
+/** Longest display name the laptop accepts from a phone. */
+export const NAME_MAX = 24;
+
+/**
+ * One player's finished game, sent by the laptop to that player's phone,
+ * which saves it to their career when signed in (supabase/migrations: record_game).
+ */
+export type GameResult =
+  | { game: "bowling"; rolls: number[]; won?: boolean }
+  | { game: "golf"; strokes: number[]; par: number[]; holes: number; won?: boolean }
+  | { game: "pingpong"; score: [number, number]; opponent: "cpu" | "human"; opponentName: string };
+
 /** Control messages over the PeerJS channel (retransmitted, unordered). */
 export type HostToClient =
   | { t: "welcome"; slot: PlayerSlot } // host's telemetry channel exists; start streaming
   | { t: "full" } // both slots taken
   | { t: "scene"; scene: string } // what the laptop is showing, for the phone's hint
-  | { t: "turn"; slot: PlayerSlot | null }; // whose turn in bowling and golf (null: everyone plays)
+  | { t: "turn"; slot: PlayerSlot | null } // whose turn in bowling and golf (null: everyone plays)
+  | { t: "names"; names: [string, string] } // what each player is called (account names, else Player 1/2)
+  | { t: "result"; result: GameResult }; // this player's finished game, to save to their career
 
 export type ClientToHost =
   | { t: "hello" }
@@ -64,4 +78,6 @@ export type ClientToHost =
   | { t: "exit" }
   // "buttons": the phone's packets are generated from on-screen buttons, already
   // in the player's frame (no compass heading to zero); "motion": real sensors.
-  | { t: "input"; mode: "motion" | "buttons" };
+  | { t: "input"; mode: "motion" | "buttons" }
+  // Who is playing on this phone: a signed-in account (id) or a guest (null, null).
+  | { t: "profile"; id: string | null; name: string | null };

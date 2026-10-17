@@ -4,12 +4,16 @@ import {
   PACKET_BYTES,
   TELEMETRY_CHANNEL,
   roomPeerId,
+  NAME_MAX,
   type ClientToHost,
+  type GameResult,
   type HostToClient,
   type PlayerSlot,
 } from "./protocol";
+import { narrate } from "@/lib/narrator/events";
 import {
   currentTurn,
+  playerName,
   requestRecenter,
   resetTelemetry,
   setPlayer,
@@ -51,6 +55,24 @@ export function sendToClient(slot: PlayerSlot, msg: HostToClient) {
 export function broadcast(msg: HostToClient) {
   sendToClient(0, msg);
   sendToClient(1, msg);
+}
+
+/** A finished game, to the player's phone, which saves it to their career if they are signed in. */
+export function sendResult(slot: PlayerSlot, result: GameResult) {
+  sendToClient(slot, { t: "result", result });
+}
+
+/** The names everyone sees: account names, else Player 1/2. */
+const names = (): [string, string] => [playerName(0), playerName(1)];
+
+/** A phone's join is announced once its name is known (it sends it right after connecting), or after this long. */
+const JOIN_NAME_WAIT_MS = 1500;
+const pendingJoin: [number, number] = [0, 0];
+function announceJoin(slot: PlayerSlot) {
+  if (!pendingJoin[slot]) return;
+  clearTimeout(pendingJoin[slot]);
+  pendingJoin[slot] = 0;
+  narrate({ type: "join", name: playerName(slot) });
 }
 
 /** A phone asked to leave the current game (three-finger tap). Set by the scene layer. */
@@ -97,10 +119,17 @@ export async function startHost(): Promise<() => void> {
 
   // Tell the phones whose turn it is whenever that changes (a turn-based game
   // starts, ends, or passes to the other player), so the waiting one says so.
+  // Likewise each player's name when someone signs in, joins or leaves.
   let turn = currentTurn();
+  let named = names().join("|");
   const stopTurns = useGameStore.subscribe(() => {
     const next = currentTurn();
     if (next !== turn) broadcast({ t: "turn", slot: (turn = next) });
+    const now = names();
+    if (now.join("|") !== named) {
+      named = now.join("|");
+      broadcast({ t: "names", names: now });
+    }
   });
 
   return () => {
@@ -117,7 +146,11 @@ export async function startHost(): Promise<() => void> {
 function release(slot: PlayerSlot, conn: DataConnection | null) {
   if (conns[slot] !== conn) return;
   conns[slot] = null;
-  setPlayer(slot, { connected: false, peerId: null });
+  const name = playerName(slot);
+  clearTimeout(pendingJoin[slot]);
+  pendingJoin[slot] = 0;
+  setPlayer(slot, { connected: false, peerId: null, account: null });
+  narrate({ type: "leave", name });
   resetTelemetry(slot);
 }
 
@@ -146,10 +179,12 @@ function attach(conn: DataConnection) {
   };
 
   resetTelemetry(slot);
-  setPlayer(slot, { connected: true, peerId: conn.peer });
+  setPlayer(slot, { connected: true, peerId: conn.peer, account: null });
+  pendingJoin[slot] = window.setTimeout(() => announceJoin(slot), JOIN_NAME_WAIT_MS);
   conn.send({ t: "welcome", slot } satisfies HostToClient);
   conn.send({ t: "scene", scene: useGameStore.getState().scene } satisfies HostToClient);
   conn.send({ t: "turn", slot: currentTurn() } satisfies HostToClient);
+  conn.send({ t: "names", names: names() } satisfies HostToClient);
 
   conn.on("data", (raw) => {
     const msg = raw as ClientToHost;
@@ -160,6 +195,12 @@ function attach(conn: DataConnection) {
       const inputModes = [...useGameStore.getState().inputModes] as ["motion" | "buttons", "motion" | "buttons"];
       inputModes[slot] = msg.mode;
       useGameStore.setState({ inputModes });
+    } else if (msg?.t === "profile") {
+      // Who is on this phone. Names come from another device, so trim and cap them.
+      const name = typeof msg.name === "string" ? msg.name.replace(/\s+/g, " ").trim().slice(0, NAME_MAX) : "";
+      const account = name ? { id: typeof msg.id === "string" ? msg.id : null, name } : null;
+      setPlayer(slot, { ...useGameStore.getState().players[slot], account });
+      announceJoin(slot);
     }
   });
   const drop = () => {

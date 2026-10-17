@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import type { IslandId } from "@/lib/hub/islands";
-import { P, PACKET_FLOATS, type PlayerSlot } from "@/lib/net/protocol";
+import { P, PACKET_FLOATS, PLAYER_NAMES, type GameResult, type PlayerSlot } from "@/lib/net/protocol";
 
 // Two kinds of state live here.
 //
@@ -40,6 +40,8 @@ export interface PlayerTelemetry {
 export interface PlayerConn {
   connected: boolean;
   peerId: string | null;
+  /** The phone's signed-in account (or a test name on the sim pad); null for a guest. */
+  account: { id: string | null; name: string } | null;
 }
 
 interface GameState {
@@ -59,10 +61,18 @@ interface GameState {
   // Everything below changes a few times a minute at most (on hits, rolls,
   // strokes), never per frame, so it goes through setState.
   scene: SceneId;
+  /** The startup animation is up (first load per session): the camera holds back meanwhile. */
+  intro: boolean;
+  /** First load this session: the camera's first shot starts pulled back and glides in (even if the scene loads after the intro). */
+  introGlide: boolean;
   /** The glass look: the prototype's "classic" glass or the glossier "liquid" glass. G on the laptop switches it. */
   glassStyle: "classic" | "liquid";
   /** Short message after a point, roll or stroke, with when it was set. */
   callout: { text: string; at: number } | null;
+  /** The narrator's line being spoken, shown under the callout. */
+  subtitle: { text: string; at: number } | null;
+  /** The narrator's voice: N on the laptop mutes it (remembered in localStorage). */
+  narrator: { muted: boolean; volume: number };
 
   // Hub
   hovered: [IslandId | null, IslandId | null];
@@ -81,6 +91,10 @@ interface GameState {
   clientScene: SceneId;
   /** Phone side: whose turn it is in a turn-based game, or null when everyone plays at once. */
   clientTurn: PlayerSlot | null;
+  /** Phone side: what each player is called, from the laptop. */
+  clientNames: [string, string];
+  /** Phone side: this player's last finished game, to save to their career. */
+  clientResult: { result: GameResult; at: number } | null;
 
   // Transient: mutated in place, never replaced
   telemetry: [PlayerTelemetry, PlayerTelemetry];
@@ -97,16 +111,20 @@ export const useGameStore = create<GameState>()(() => ({
   roomCode: null,
   hostError: null,
   players: [
-    { connected: false, peerId: null },
-    { connected: false, peerId: null },
+    { connected: false, peerId: null, account: null },
+    { connected: false, peerId: null, account: null },
   ],
   inputModes: ["buttons", "buttons"],
   clientStatus: "idle",
   clientError: null,
   mySlot: null,
   scene: "hub",
+  intro: true,
+  introGlide: false,
   glassStyle: "classic",
   callout: null,
+  subtitle: null,
+  narrator: { muted: false, volume: 0.9 },
   hovered: [null, null],
   selected: null,
   pingpong: { score: [0, 0], rally: 0, cpu: true },
@@ -114,6 +132,8 @@ export const useGameStore = create<GameState>()(() => ({
   golf: { hole: 0, turn: 0, players: 1, strokes: 0, cards: [[], []], over: false },
   clientScene: "hub",
   clientTurn: null,
+  clientNames: [PLAYER_NAMES[0], PLAYER_NAMES[1]],
+  clientResult: null,
   telemetry: [makeTelemetry(), makeTelemetry()],
 }));
 
@@ -161,6 +181,14 @@ export function nextTurn(slot: PlayerSlot, players: 1 | 2, finished: (p: PlayerS
   const other = (1 - slot) as PlayerSlot;
   return players === 2 && useGameStore.getState().players[other].connected && !finished(other) ? other : slot;
 }
+
+/** What to call a player: their account name, else Player 1/2. For callouts, the narrator and the HUD. */
+export function playerName(slot: PlayerSlot) {
+  return useGameStore.getState().players[slot].account?.name ?? PLAYER_NAMES[slot];
+}
+
+/** playerName as a React hook, so labels update when a player signs in. */
+export const usePlayerName = (slot: PlayerSlot) => useGameStore((s) => s.players[slot].account?.name ?? PLAYER_NAMES[slot]);
 
 export function callout(text: string) {
   useGameStore.setState({ callout: { text, at: performance.now() } });

@@ -58,6 +58,10 @@ export async function connectToHost(code: string): Promise<ClientLink> {
       useGameStore.setState({ clientScene: msg.scene as never });
     } else if (msg.t === "turn") {
       useGameStore.setState({ clientTurn: msg.slot });
+    } else if (msg.t === "names") {
+      useGameStore.setState({ clientNames: msg.names });
+    } else if (msg.t === "result") {
+      useGameStore.setState({ clientResult: { result: msg.result, at: performance.now() } });
     } else if (msg.t === "full") {
       useGameStore.setState({ clientStatus: "full" });
     }

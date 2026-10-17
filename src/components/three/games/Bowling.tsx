@@ -6,9 +6,11 @@ import { useEffect, useMemo, useRef } from "react";
 import { LatheGeometry, MathUtils, MeshPhysicalMaterial, MeshStandardMaterial, TorusGeometry, Vector2, Vector3 } from "three";
 import { placeRig, rigs } from "@/lib/game/rig";
 import { setView } from "@/lib/game/view";
-import { PINS, position, totalScore } from "@/lib/games/bowling";
-import { PLAYER_NAMES, type PlayerSlot } from "@/lib/net/protocol";
-import { callout, nextTurn, useGameStore } from "@/store/gameStore";
+import { PINS, isSplit, position, strikeStreak, totalScore } from "@/lib/games/bowling";
+import type { PlayerSlot } from "@/lib/net/protocol";
+import { sendResult } from "@/lib/net/host";
+import { narrate } from "@/lib/narrator/events";
+import { callout, nextTurn, playerName, useGameStore } from "@/store/gameStore";
 import Floor from "../Floor";
 import { BackgroundGlass } from "../Glass";
 
@@ -63,6 +65,8 @@ export const bowl = {
   stillSince: 0,
   prevGrip: false,
   lastSpeed: 0,
+  /** This ball left the lane for a gutter (a miss that stayed on the lane is not a gutter ball). */
+  inGutter: false,
 };
 
 /** One geometry and material set for all ten pins (not ten copies of each). */
@@ -214,8 +218,10 @@ export default function Bowling() {
     rolls[me] = [...g.rolls[me], knocked];
     const after = position(rolls[me]);
     const cleared = knocked === before.standing;
+    const fresh = before.standing === 10;
+    const name = playerName(me);
     const result =
-      cleared && before.standing === 10 ? "Strike!" : cleared ? "Spare!" : knocked === 0 ? "Gutter ball" : `${knocked} pin${knocked === 1 ? "" : "s"}`;
+      cleared && before.standing === 10 ? "Strike!" : cleared ? "Spare!" : knocked === 0 ? (bowl.inGutter ? "Gutter ball" : "Missed") : `${knocked} pin${knocked === 1 ? "" : "s"}`;
 
     // A finished frame passes the lane on; every frame starts on a full rack.
     const finished = (p: PlayerSlot) => position(rolls[p]).over;
@@ -223,14 +229,39 @@ export default function Bowling() {
     const over = finished(turn);
     useGameStore.setState({ bowling: { ...g, rolls, turn, over } });
 
+    // The narrator: what this ball did, then the result or who bowls next.
+    if (cleared && fresh) {
+      const streak = strikeStreak(rolls[me]);
+      narrate(
+        streak >= 4
+          ? { type: "strikeStreak", name, count: streak }
+          : { type: streak === 3 ? "turkey" : streak === 2 ? "double" : "strike", name },
+      );
+    } else if (cleared) narrate({ type: "spare", name });
+    else if (bowl.inGutter) narrate({ type: "gutter", name });
+    else if (fresh && isSplit(bowl.standing.map((up, i) => up && !fallen(i)))) narrate({ type: "split", name });
+    if (over) {
+      const [a, b] = [totalScore(rolls[0]), totalScore(rolls[1])];
+      // Each bowler's finished game, for their career (won: only with two bowlers).
+      for (const p of g.players === 2 ? ([0, 1] as const) : [me]) {
+        if (position(rolls[p]).over) sendResult(p, { game: "bowling", rolls: rolls[p], won: g.players === 2 ? (p === 0 ? a > b : b > a) : undefined });
+      }
+      if (g.players === 1) narrate({ type: "matchEnd", game: "bowling", winner: name, score: `${totalScore(rolls[me])} points`, solo: true });
+      else narrate({ type: "matchEnd", game: "bowling", winner: a === b ? null : playerName(a > b ? 0 : 1), score: `${Math.max(a, b)}–${Math.min(a, b)}` });
+    } else {
+      const up = position(rolls[turn]);
+      if (up.frame === 9 && up.ball === 0) narrate({ type: "finalFrame", name: playerName(turn) });
+      else if (turn !== me) narrate({ type: "turn", game: "bowling", name: playerName(turn) });
+    }
+
     if (over) {
       const [a, b] = [totalScore(rolls[0]), totalScore(rolls[1])];
       callout(
-        g.players === 1 ? `Game over · ${totalScore(rolls[me])}` : a === b ? `Tie game · ${a}` : `${PLAYER_NAMES[a > b ? 0 : 1]} wins · ${Math.max(a, b)}–${Math.min(a, b)}`,
+        g.players === 1 ? `Game over · ${totalScore(rolls[me])}` : a === b ? `Tie game · ${a}` : `${playerName(a > b ? 0 : 1)} wins · ${Math.max(a, b)}–${Math.min(a, b)}`,
       );
       setPhase("over");
     } else {
-      callout(turn === me ? result : `${result} · ${PLAYER_NAMES[turn]} is up`);
+      callout(turn === me ? result : `${result} · ${playerName(turn)} is up`);
       if (turn !== me || after.standing === 10) bowl.standing.fill(true);
       else bowl.standing.forEach((up, i) => (bowl.standing[i] = up && !fallen(i)));
       if (turn !== me) giveTurn(turn);
@@ -298,10 +329,12 @@ export default function Bowling() {
           rb.setLinvel({ x: -Math.sin(angle) * v, y: 0, z: -Math.cos(angle) * v }, true);
           rb.setAngvel({ x: -v / BALL_R, y: 0, z: 0 }, true);
           bowl.stillSince = 0;
+          bowl.inGutter = false;
           setPhase("rolling");
         }
       }
     } else if (bowl.phase === "rolling") {
+      if (Math.abs(t.x) > LANE.halfW && t.z > LANE.headPin) bowl.inGutter = true;
       const lv = rb.linvel();
       if (Math.hypot(lv.x, lv.z) < 0.1) bowl.stillSince ||= now;
       else bowl.stillSince = 0;
