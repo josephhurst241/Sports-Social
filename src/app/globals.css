@@ -1,26 +1,39 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/* Sports Social design tokens (Apple HIG): pure white, SF Pro where the OS
+   has it and Inter elsewhere, high-contrast ink, frosted panels with a
+   hairline edge. No glows, no drop shadows, no gradients on text. */
+@theme {
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", var(--font-inter), "Helvetica Neue", Arial, sans-serif;
+  --color-ink: #000000;
+  --color-ink-2: #3c3c43;
+  --color-ink-3: #8e8e93;
+  --color-p1: #00ffff;
+  --color-p2: #ff00ff;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html,
+body {
+  background: #ffffff;
+  color: var(--color-ink);
+  height: 100%;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+}
+
+/* The one panel style: Tailwind's backdrop-blur-2xl, a little saturation, a hairline ring. */
+@utility panel {
+  background: rgb(255 255 255 / 0.62);
+  backdrop-filter: blur(var(--blur-2xl)) saturate(160%);
+  -webkit-backdrop-filter: blur(var(--blur-2xl)) saturate(160%);
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.06);
+}
+
+@utility tabular {
+  font-variant-numeric: tabular-nums;
 }

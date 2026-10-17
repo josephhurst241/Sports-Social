@@ -1,36 +1,68 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Sports Social
 
-## Getting Started
+A motion-controlled browser game: the laptop shows a glass hub, your phone is
+the controller. Your avatar stands on a glass disc and its hand follows the
+phone. Point the phone at a floating island to pick a game: Ping Pong,
+Bowling or Golf. Next.js 16, React Three Fiber, Rapier, PeerJS (WebRTC), Zustand.
 
-First, run the development server:
+## Run
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+npm run dev      # HTTPS dev server on your Wi-Fi; phones need HTTPS for motion sensors
+npm run play     # optimized build at http://localhost:3000 (desktop testing, best frame rate)
+PORT=3005 npm run dev   # either command, on another port
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+1. Open the laptop page. It shows a room code and a QR code.
+2. Scan the QR with your phone (or open `https://<laptop IP>:3000/play` and type the code).
+   Accept the self-signed certificate warning once.
+3. Tap **Start** and allow motion access.
+4. Hold the phone upright, screen toward you: that is the rest pose. Tip and turn it and the hand follows.
+5. Point the top of the phone at the laptop like a remote: a beam comes out of the hand. Aim it at an island, tap the phone to select it, tap again to play.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### Buttons or Motion
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+The phone starts in **Buttons** mode: on-screen controls for each game (aim
+with ‹ ›, hold the big button to wind up, let go to swing). It needs no
+motion permission and no HTTPS. **Motion** (the segmented switch at the top)
+uses the phone's sensors as below. Buttons mode generates the same packets
+the sensors would, so the games cannot tell the difference.
 
-## Learn More
+### The games (Motion controls)
 
-To learn more about Next.js, take a look at the following resources:
+| Game | Hold the phone | Play |
+|---|---|---|
+| **Ping Pong** (vs the CPU, or a second phone) | like a paddle, screen facing the table | tap to serve; swing (sweep the screen from facing right to facing left) to hit. You slide to the ball automatically. First to 11. |
+| **Bowling** (10 frames) | upright, arm hanging | hold the screen to pick up the ball, swing underhand, let go. Swing speed is pace; turn the phone to angle the shot. |
+| **Golf** (3 holes, par 7) | upright, like a putter grip | hold the screen, swing the putter back and through, let go. Swing speed is power; turn the phone to aim (the line on the green). |
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+In any game: **three-finger tap** on the phone (or **Esc** on the laptop) goes back to the hub; **two-finger tap** (or **R**) recenters.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+On the phone, touching the screen anywhere is the **grip**; a **two-finger tap** recenters.
+On the laptop, **R** recenters every phone. A second phone joins as Player 2.
 
-## Deploy on Vercel
+No phone? Open `/play?sim=1&code=<code>` in another browser window: the mouse
+aims the stand-in phone (it sweeps by itself when idle; the button is the grip).
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Phones and laptop must reach each other on the network. Some campus and
+office Wi-Fi blocks device-to-device traffic; a phone hotspot works.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Check it
+
+`node scripts/check.mjs --url=http://localhost:3000` drives the laptop page
+and a simulated phone in headless Chrome and verifies: one room and one peer
+connection per side, ~60 Hz binary telemetry, the hand moving and turning,
+a real touch registering as the grip, pointing and selecting islands, a
+second tap starting a game, and then a bowling roll, golf putts to a holed
+ball and the next hole, and a ping pong serve and rally (the game swings are
+scripted phone packets written into the laptop's telemetry slot).
+
+## History
+
+This is Glass Motion Prototype 6 (commit `c0ca602` of `~/glass-motion`) under a
+new name, moved to Next.js 16. Its git history stays in `~/glass-motion`.
+Earlier prototypes are frozen in sibling folders: `~/glass-motion-prototype1` (keyboard ping pong),
+`~/glass-motion-prototype2` (walkable glass hub), `~/glass-motion-prototype3`
+(big hub, glass, sound), `~/glass-motion-prototype4` (flat core engine). Prototype 5
+(the hub alone) is commit `bc5f16f` in `~/glass-motion`. Run one with `npx next dev --turbopack -p <port>` inside it.
