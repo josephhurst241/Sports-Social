@@ -328,8 +328,9 @@ export default function PingPong() {
         }}
       >
         <BallCollider args={[BALL_RADIUS]} mass={0.0027} restitution={0.9} friction={0.2} />
+        {/* Regulation orange: a yellow ball washed out against the pale glass table and white floor. */}
         <Sphere args={[BALL_RADIUS, 32, 32]} castShadow>
-          <meshStandardMaterial color="#ffd60a" roughness={0.3} />
+          <meshStandardMaterial color="#ff7a00" roughness={0.3} />
         </Sphere>
       </RigidBody>
     </>

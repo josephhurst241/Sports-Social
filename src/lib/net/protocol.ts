@@ -55,7 +55,8 @@ export const PLAYER_NAMES = ["Player 1", "Player 2"] as const;
 export type HostToClient =
   | { t: "welcome"; slot: PlayerSlot } // host's telemetry channel exists; start streaming
   | { t: "full" } // both slots taken
-  | { t: "scene"; scene: string }; // what the laptop is showing, for the phone's hint
+  | { t: "scene"; scene: string } // what the laptop is showing, for the phone's hint
+  | { t: "turn"; slot: PlayerSlot | null }; // whose turn in bowling and golf (null: everyone plays)
 
 export type ClientToHost =
   | { t: "hello" }

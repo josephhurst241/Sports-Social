@@ -23,6 +23,10 @@ function setScene(scene: SceneId) {
 
 export function enterGame(id: IslandId) {
   const s = useGameStore.getState();
+  const [p1, p2] = [s.players[0].connected, s.players[1].connected];
+  const two = p1 && p2 ? 2 : 1;
+  // Player 1 goes first, unless only the second phone is still here.
+  const first: PlayerSlot = !p1 && p2 ? 1 : 0;
   if (id === "pingpong") {
     // Player 1 at the near end, the second phone (or the CPU) at the far end.
     placeRig(0, 0, 0, PLAYER_Z, 0, "paddle");
@@ -35,13 +39,11 @@ export function enterGame(id: IslandId) {
     pingpong.pointsPlayed = 0;
     useGameStore.setState({ pingpong: { score: [0, 0], rally: 0, cpu: !s.players[1].connected } });
   } else if (id === "bowling") {
-    // The ball hangs 0.24 m right of the bowler's center: stand there so it leaves mid-lane.
-    placeRig(0, -0.24, 0, 0.9, 0, "pendulum");
-    placeRig(1, 2.4, 0, 1.6, 0, "pendulum");
-    useGameStore.setState({ bowling: { rolls: [], over: false } });
+    // Two phones in now means two bowlers taking turns, a frame each. The lane places them.
+    useGameStore.setState({ bowling: { rolls: [[], []], turn: first, players: two, over: false } });
   } else {
-    useGameStore.setState({ golf: { hole: 0, strokes: 0, card: [], over: false } });
-    // The golf scene places the players at each tee.
+    // Two phones in now means two golfers taking turns, a hole each. The green places them at each tee.
+    useGameStore.setState({ golf: { hole: 0, turn: first, players: two, strokes: 0, cards: [[], []], over: false } });
   }
   setScene(id);
 }

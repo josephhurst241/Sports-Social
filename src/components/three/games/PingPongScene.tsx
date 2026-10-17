@@ -7,6 +7,7 @@ import { setView } from "@/lib/game/view";
 import { cpuIntent } from "@/lib/input/cpu";
 import { makeSwingPaddle, stepSwingPaddle } from "@/lib/input/paddle";
 import { useGameStore } from "@/store/gameStore";
+import Floor from "../Floor";
 import PingPong, { TableModel } from "./PingPong";
 
 // Ping pong: Player 1 against the second phone, or against the CPU when
@@ -44,10 +45,7 @@ export default function PingPongScene() {
   return (
     <>
       <PingPongView />
-      <mesh rotation-x={-Math.PI / 2} receiveShadow>
-        <planeGeometry args={[60, 60]} />
-        <meshStandardMaterial color="#ffffff" roughness={1} toneMapped={false} />
-      </mesh>
+      <Floor />
       <TableModel />
       <PingPong />
       <CpuPlayer />

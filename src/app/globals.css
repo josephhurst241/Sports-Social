@@ -12,6 +12,30 @@
   --color-p2: #ff00ff;
 }
 
+/* The scene's color signature (lib/game/theme.ts themeVars), set on the page
+   root. Registered so they interpolate: the UI changes hue with the fog. */
+@property --accent {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #e0f7fa;
+}
+@property --accent-ink {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #2b6a85;
+}
+@property --wash {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #f6fdfe;
+}
+
+@theme inline {
+  --color-accent: var(--accent);
+  --color-accent-ink: var(--accent-ink);
+  --color-wash: var(--wash);
+}
+
 html,
 body {
   background: #ffffff;
@@ -26,12 +50,33 @@ body {
   overscroll-behavior: none;
 }
 
-/* The one panel style: Tailwind's backdrop-blur-2xl, a little saturation, a hairline ring. */
+/* Matches the fog's 1.2 s spring in Stage's Atmosphere. */
+@utility themed {
+  transition:
+    --accent 1.2s ease-in-out,
+    --accent-ink 1.2s ease-in-out,
+    --wash 1.2s ease-in-out;
+}
+
+/* The one panel style. Opaque enough that the scene never muddies the text,
+   tinted a breath toward the fog so it belongs to the world, and edged by a
+   hairline of the accent. Saturation stays low so colored glass behind it
+   does not flare through. */
 @utility panel {
-  background: rgb(255 255 255 / 0.62);
-  backdrop-filter: blur(var(--blur-2xl)) saturate(160%);
-  -webkit-backdrop-filter: blur(var(--blur-2xl)) saturate(160%);
-  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.06);
+  background: color-mix(in oklab, var(--wash) 35%, rgb(255 255 255 / 0.7));
+  backdrop-filter: blur(var(--blur-2xl)) saturate(120%);
+  -webkit-backdrop-filter: blur(var(--blur-2xl)) saturate(120%);
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--accent-ink) 14%, transparent);
+}
+
+/* The inverse panel, for what is momentary or primary (a callout, the
+   phone's main button): solid accent ink, white text. Used sparingly, so it
+   stands out from the light panels around it. */
+@utility panel-ink {
+  background: color-mix(in oklab, var(--accent-ink) 92%, transparent);
+  backdrop-filter: blur(var(--blur-xl));
+  -webkit-backdrop-filter: blur(var(--blur-xl));
+  color: #ffffff;
 }
 
 @utility tabular {

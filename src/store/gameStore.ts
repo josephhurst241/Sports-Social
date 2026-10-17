@@ -70,13 +70,17 @@ interface GameState {
 
   // Ping pong
   pingpong: { score: [number, number]; rally: number; cpu: boolean };
-  // Bowling: every roll so far (pins knocked) and whether the 10 frames are done
-  bowling: { rolls: number[]; over: boolean };
-  // Golf: strokes per finished hole, the hole being played and its strokes so far
-  golf: { hole: number; strokes: number; card: number[]; over: boolean };
+  // Bowling and golf take turns when two phones are in at the start: a whole
+  // frame each in bowling, a whole hole each in golf. `players` is how many play.
+  // Bowling: each player's rolls (pins knocked), whose turn, and whether every game is done
+  bowling: { rolls: [number[], number[]]; turn: PlayerSlot; players: 1 | 2; over: boolean };
+  // Golf: the hole, whose turn and their strokes on it so far, each player's finished holes
+  golf: { hole: number; turn: PlayerSlot; players: 1 | 2; strokes: number; cards: [number[], number[]]; over: boolean };
 
   /** Phone side: which scene the laptop is in, for the controller's hint. */
   clientScene: SceneId;
+  /** Phone side: whose turn it is in a turn-based game, or null when everyone plays at once. */
+  clientTurn: PlayerSlot | null;
 
   // Transient: mutated in place, never replaced
   telemetry: [PlayerTelemetry, PlayerTelemetry];
@@ -106,9 +110,10 @@ export const useGameStore = create<GameState>()(() => ({
   hovered: [null, null],
   selected: null,
   pingpong: { score: [0, 0], rally: 0, cpu: true },
-  bowling: { rolls: [], over: false },
-  golf: { hole: 0, strokes: 0, card: [], over: false },
+  bowling: { rolls: [[], []], turn: 0, players: 1, over: false },
+  golf: { hole: 0, turn: 0, players: 1, strokes: 0, cards: [[], []], over: false },
   clientScene: "hub",
+  clientTurn: null,
   telemetry: [makeTelemetry(), makeTelemetry()],
 }));
 
@@ -138,6 +143,23 @@ export function resetTelemetry(slot: PlayerSlot) {
 
 export function requestRecenter(slot: PlayerSlot) {
   useGameStore.getState().telemetry[slot].recenterSeq++;
+}
+
+/** Whose turn it is in the current scene, or null when nobody waits (hub, ping pong). */
+export function currentTurn(): PlayerSlot | null {
+  const s = useGameStore.getState();
+  if (s.scene === "bowling") return s.bowling.turn;
+  if (s.scene === "golf") return s.golf.turn;
+  return null;
+}
+
+/**
+ * Who plays after `slot`: the other player when this game has two and they
+ * are still connected and not finished, else `slot` again.
+ */
+export function nextTurn(slot: PlayerSlot, players: 1 | 2, finished: (p: PlayerSlot) => boolean): PlayerSlot {
+  const other = (1 - slot) as PlayerSlot;
+  return players === 2 && useGameStore.getState().players[other].connected && !finished(other) ? other : slot;
 }
 
 export function callout(text: string) {

@@ -4,6 +4,7 @@ import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
 import QRCode from "qrcode";
 import { exitToHub } from "@/lib/game/scenes";
+import { SCENE_INKS, themeVars } from "@/lib/game/theme";
 import { scorecard, totalScore } from "@/lib/games/bowling";
 import { HOLES, PAR } from "@/lib/games/golf";
 import { POINTS_TO_WIN } from "@/lib/games/pingpong";
@@ -64,12 +65,17 @@ function usePacketRate(slot: PlayerSlot) {
   return rate;
 }
 
+/** A player's color dot. The neon colors get a hairline so they hold up on white. */
+function Dot({ color }: { color: string }) {
+  return <span className="h-2.5 w-2.5 shrink-0 rounded-full shadow-[inset_0_0_0_1px_rgb(0_0_0/0.14)]" style={{ background: color }} />;
+}
+
 function PlayerChip({ slot }: { slot: PlayerSlot }) {
   const connected = useGameStore((s) => s.players[slot].connected);
   const rate = usePacketRate(slot);
   return (
     <div className="panel flex items-center gap-3 rounded-full py-2.5 pr-5 pl-3.5">
-      <span className="h-2.5 w-2.5 rounded-full" style={{ background: connected ? PLAYER_COLORS[slot] : "#d1d1d6" }} />
+      <Dot color={connected ? PLAYER_COLORS[slot] : "#d1d1d6"} />
       <span className="text-[15px] font-semibold">{PLAYER_NAMES[slot]}</span>
       <span className="tabular text-[13px] text-ink-3">{connected ? `${rate} Hz` : "Waiting"}</span>
     </div>
@@ -85,12 +91,19 @@ function QR({ svg, size }: { svg: string | null; size: string }) {
   );
 }
 
-/** The handshake: a massive room code and a QR, nothing else. */
+/**
+ * The handshake: a massive room code and a QR, nothing else. It sits over the
+ * middle of the hub, so it is nearly opaque: avatars and icons behind it do
+ * not show through the code.
+ */
 function Handshake({ code, url, status, error }: { code: string | null; url: string | null; status: string; error: string | null }) {
   const svg = useQrSvg(url);
   return (
-    <div className="panel w-[min(92vw,820px)] rounded-[40px] px-14 py-12">
-      <div className="text-[15px] font-semibold text-ink-3">Room code</div>
+    <div
+      className="panel w-[min(92vw,820px)] rounded-[40px] px-14 py-12"
+      style={{ background: "color-mix(in oklab, var(--wash) 30%, rgb(255 255 255 / 0.92))" }}
+    >
+      <div className="text-[15px] font-semibold text-accent-ink">Room code</div>
       <div className="mt-2 flex items-center justify-between gap-12">
         <div className="tabular text-[168px] leading-[0.9] font-semibold tracking-[-0.05em] text-ink">
           {code ?? "····"}
@@ -111,14 +124,14 @@ function RoomBadge({ code, url }: { code: string; url: string | null }) {
     <div className="panel flex items-center gap-4 rounded-3xl p-2.5 pr-5">
       <QR svg={svg} size="h-14 w-14 rounded-xl p-1.5" />
       <div>
-        <div className="text-[12px] font-semibold text-ink-3">Room</div>
+        <div className="text-[12px] font-semibold text-accent-ink">Room</div>
         <div className="tabular text-[26px] leading-none font-semibold tracking-tight">{code}</div>
       </div>
     </div>
   );
 }
 
-/** The game a player tapped in the hub; a second tap starts it. */
+/** The game a player tapped in the hub, named in that game's color; a second tap starts it. */
 function Selection() {
   const selected = useGameStore((s) => s.selected);
   const island = ISLANDS.find((i) => i.id === selected);
@@ -127,14 +140,19 @@ function Selection() {
       className="panel rounded-3xl px-8 py-5 text-center transition-all duration-300"
       style={{ opacity: island ? 1 : 0, transform: island ? "none" : "translateY(8px)" }}
     >
-      <div className="text-[13px] font-semibold text-ink-3">Selected</div>
-      <div className="mt-0.5 text-[28px] leading-tight font-semibold tracking-tight">{island?.name ?? " "}</div>
+      <div className="text-[13px] font-semibold text-accent-ink">Selected</div>
+      <div
+        className="mt-0.5 text-[28px] leading-tight font-semibold tracking-tight transition-colors duration-300"
+        style={{ color: island ? SCENE_INKS[island.id] : undefined }}
+      >
+        {island?.name ?? " "}
+      </div>
       <div className="mt-1 text-[15px] text-ink-2">Tap again to play.</div>
     </div>
   );
 }
 
-/** The latest point, roll or stroke, shown for a moment. */
+/** The latest point, roll or stroke, shown for a moment, inverted so it reads apart from the HUD above it. */
 function Callout() {
   const callout = useGameStore((s) => s.callout);
   const [visible, setVisible] = useState(false);
@@ -146,7 +164,7 @@ function Callout() {
   }, [callout]);
   return (
     <div
-      className="panel rounded-full px-7 py-3 text-[22px] font-semibold tracking-tight transition-all duration-300"
+      className="panel-ink rounded-full px-7 py-3 text-[22px] font-semibold tracking-tight transition-all duration-300"
       style={{ opacity: visible ? 1 : 0, transform: visible ? "none" : "translateY(-6px)" }}
     >
       {callout?.text ?? " "}
@@ -160,7 +178,7 @@ function PingPongHud() {
     <div className="panel flex items-center gap-7 rounded-full px-7 py-3">
       <Side color={PLAYER_COLORS[0]} name="Player 1" points={score[0]} />
       <div className="text-center">
-        <div className="text-[12px] font-semibold text-ink-3">First to {POINTS_TO_WIN}</div>
+        <div className="text-[12px] font-semibold text-accent-ink">First to {POINTS_TO_WIN}</div>
         <div className="tabular text-[13px] text-ink-2">Rally {rally}</div>
       </div>
       <Side color={cpu ? "#ff7ae0" : PLAYER_COLORS[1]} name={cpu ? "CPU" : "Player 2"} points={score[1]} right />
@@ -171,55 +189,91 @@ function PingPongHud() {
 function Side({ color, name, points, right }: { color: string; name: string; points: number; right?: boolean }) {
   return (
     <div className={`flex items-center gap-3 ${right ? "flex-row-reverse" : ""}`}>
-      <span className="h-2.5 w-2.5 rounded-full" style={{ background: color }} />
+      <Dot color={color} />
       <span className="text-[15px] font-semibold">{name}</span>
       <span className="tabular text-[30px] leading-none font-semibold">{points}</span>
     </div>
   );
 }
 
-function BowlingHud() {
-  const rolls = useGameStore((s) => s.bowling.rolls);
+/** One bowler's line on the scorecard; the frame being bowled is highlighted on the active line. */
+function BowlingRow({ slot, rolls, active, named, header }: { slot: PlayerSlot; rolls: number[]; active: boolean; named: boolean; header: boolean }) {
   const card = scorecard(rolls);
+  // The frame being bowled: the first empty one, or the one with a ball still to come.
+  const empty = card.findIndex((f) => f.marks.length === 0);
+  let current = empty < 0 ? 9 : empty;
+  if (current > 0 && card[current - 1].marks.length === 1 && card[current - 1].marks[0] !== "X") current--;
+  if (!active) current = -1;
   return (
-    <div className="panel flex items-stretch rounded-2xl p-1.5">
+    // The waiting bowler's line steps back so the active one leads.
+    <div className={`flex items-stretch transition-opacity duration-300 ${named && !active ? "opacity-50" : ""}`}>
+      {named && (
+        <div className="flex w-[100px] items-center gap-2 pl-2">
+          <Dot color={PLAYER_COLORS[slot]} />
+          <span className="text-[13px] font-semibold">{PLAYER_NAMES[slot]}</span>
+        </div>
+      )}
       {card.map((f, i) => (
-        <div key={i} className={`w-[60px] px-1 py-1 text-center ${i ? "border-l border-black/[0.06]" : ""}`}>
-          <div className="text-[11px] font-semibold text-ink-3">{i + 1}</div>
+        <div
+          key={i}
+          className={`w-[56px] rounded-xl px-1 py-1 text-center transition-colors duration-300 ${i === current ? "bg-accent/25" : ""}`}
+        >
+          {header && <div className={`text-[11px] font-semibold ${i === current ? "text-accent-ink" : "text-ink-3"}`}>{i + 1}</div>}
           <div className="tabular mt-0.5 h-5 text-[15px] font-semibold tracking-wider">{f.marks.join(" ")}</div>
-          <div className="tabular text-[13px] text-ink-2">{f.total ?? ""}</div>
+          <div className="tabular h-[18px] text-[13px] text-ink-2">{f.total ?? ""}</div>
         </div>
       ))}
-      <div className="w-[70px] border-l border-black/[0.06] px-1 py-1 text-center">
-        <div className="text-[11px] font-semibold text-ink-3">Total</div>
+      <div className="ml-1 flex w-[70px] flex-col justify-center border-l border-accent-ink/15 px-1 py-1 text-center">
+        {header && <div className="text-[11px] font-semibold text-accent-ink">Total</div>}
         <div className="tabular mt-1 text-[24px] leading-none font-semibold">{totalScore(rolls)}</div>
       </div>
     </div>
   );
 }
 
-function GolfHud() {
-  const { hole, strokes, card, over } = useGameStore((s) => s.golf);
-  const h = HOLES[Math.min(hole, HOLES.length - 1)];
-  const total = card.reduce((a, b) => a + b, 0);
+function BowlingHud() {
+  const { rolls, turn, players, over } = useGameStore((s) => s.bowling);
+  const slots: PlayerSlot[] = players === 2 ? [0, 1] : [turn];
   return (
-    <div className="panel flex items-center gap-8 rounded-full px-7 py-3">
+    <div className="panel flex flex-col rounded-2xl p-1.5">
+      {slots.map((slot, i) => (
+        <BowlingRow key={slot} slot={slot} rolls={rolls[slot]} active={!over && slot === turn} named={players === 2} header={i === 0} />
+      ))}
+    </div>
+  );
+}
+
+function GolfHud() {
+  const { hole, turn, players, strokes, cards, over } = useGameStore((s) => s.golf);
+  const h = HOLES[Math.min(hole, HOLES.length - 1)];
+  const slots: PlayerSlot[] = players === 2 ? [0, 1] : [turn];
+  return (
+    <div className="panel flex items-center gap-8 rounded-[28px] px-7 py-3">
       <div>
-        <div className="text-[12px] font-semibold text-ink-3">
+        <div className="text-[12px] font-semibold text-accent-ink">
           Hole {Math.min(hole, HOLES.length - 1) + 1} of {HOLES.length} · Par {h.par}
         </div>
         <div className="text-[17px] font-semibold">{over ? "Round complete" : h.name}</div>
       </div>
       <div className="text-center">
-        <div className="text-[12px] font-semibold text-ink-3">Strokes</div>
+        <div className="text-[12px] font-semibold text-accent-ink">{players === 2 && !over ? `${PLAYER_NAMES[turn]} · Strokes` : "Strokes"}</div>
         <div className="tabular text-[28px] leading-none font-semibold">{over ? "–" : strokes}</div>
       </div>
-      <div className="text-center">
-        <div className="text-[12px] font-semibold text-ink-3">Card · Par {PAR}</div>
-        <div className="tabular text-[17px] font-semibold">
-          {card.length ? card.join("  ") : "–"}
-          {card.length > 0 && <span className="ml-2 text-ink-3">= {total}</span>}
-        </div>
+      <div>
+        <div className="text-[12px] font-semibold text-accent-ink">Card · Par {PAR}</div>
+        {slots.map((slot) => {
+          const card = cards[slot];
+          return (
+            <div
+              key={slot}
+              className={`tabular flex items-center gap-2 text-[17px] font-semibold transition-opacity duration-300 ${players === 2 && slot !== turn && !over ? "opacity-50" : ""}`}
+            >
+              {players === 2 && <Dot color={PLAYER_COLORS[slot]} />}
+              {card.length ? card.join("  ") : "–"}
+              {card.length > 0 && <span className="text-ink-3">= {card.reduce((a, b) => a + b, 0)}</span>}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -285,7 +339,7 @@ export default function HostScreen({ lanIp }: { lanIp: string | null }) {
   const buttonsMode = useGameStore((s) => s.inputModes[0] === "buttons");
   const [hint, hint2] = (buttonsMode ? BUTTON_HINTS : HINTS)[scene];
   return (
-    <main className="fixed inset-0 overflow-hidden bg-white select-none">
+    <main className="themed fixed inset-0 overflow-hidden bg-white select-none" style={themeVars(scene)}>
       <div className="absolute inset-0">
         <Stage />
       </div>
@@ -326,11 +380,12 @@ export default function HostScreen({ lanIp }: { lanIp: string | null }) {
           <PlayerChip slot={0} />
           <PlayerChip slot={1} />
         </div>
+        {/* On a panel, not bare: the fogged floor and glass behind would wash out loose grey text. */}
         {anyone && (
-          <div className="max-w-[46ch] text-right text-[13px] leading-relaxed text-ink-3">
-            {hint}
+          <div className="panel max-w-[48ch] rounded-2xl px-4 py-3 text-right text-[13px] leading-relaxed">
+            <span className="text-ink-2">{hint}</span>
             <br />
-            {hint2}
+            <span className="text-ink-3">{hint2}</span>
           </div>
         )}
       </footer>

@@ -3,18 +3,22 @@
 import { useFrame } from "@react-three/fiber";
 import { BallCollider, CuboidCollider, CylinderCollider, RigidBody, useRapier, type RapierRigidBody } from "@react-three/rapier";
 import { useEffect, useMemo, useRef } from "react";
-import { LatheGeometry, MathUtils, Vector2, Vector3 } from "three";
-import { rigs } from "@/lib/game/rig";
+import { LatheGeometry, MathUtils, MeshPhysicalMaterial, MeshStandardMaterial, TorusGeometry, Vector2, Vector3 } from "three";
+import { placeRig, rigs } from "@/lib/game/rig";
 import { setView } from "@/lib/game/view";
 import { PINS, position, totalScore } from "@/lib/games/bowling";
-import { callout, useGameStore } from "@/store/gameStore";
-import { BackgroundGlass, Glass } from "../Glass";
+import { PLAYER_NAMES, type PlayerSlot } from "@/lib/net/protocol";
+import { callout, nextTurn, useGameStore } from "@/store/gameStore";
+import Floor from "../Floor";
+import { BackgroundGlass } from "../Glass";
 
 // Bowling: hold the phone screen to pick up the ball, swing underhand, let
 // go to bowl. The swing's forward speed sets the pace; the phone's heading
 // (where its back points) angles the shot. Ten frames, standard scoring.
 //
-// Player 1 bowls. The lane runs from the foul line at z = 0 toward -Z.
+// With two phones in, the players take turns a frame at a time; whoever's
+// turn it is stands at the foul line and the other waits to the right.
+// The lane runs from the foul line at z = 0 toward -Z.
 
 const LANE = { halfW: 0.525, start: 1.4, headPin: -14.5, end: -15.9 };
 const GUTTER = { inner: 0.525, outer: 0.78, depth: 0.06 };
@@ -29,6 +33,17 @@ const BOWL_MAX = 10;
 /** The phone's heading turns the shot this much (a quarter), up to MAX_ANGLE. */
 const AIM_GAIN = 0.25;
 const MAX_ANGLE = 0.07;
+/**
+ * Each bowler's ball: a deep, polished shade of their color. Solid, not glass:
+ * a clear ball took on the lane's color and vanished against it.
+ */
+const BALL_COLORS = ["#006d7a", "#8e1a78"] as const;
+
+/** Whoever's turn it is at the foul line (the ball hangs 0.24 m right of center, so it leaves mid-lane); the other waits back on the left, in view and clear of the HUD. */
+function placeBowlers(turn: PlayerSlot) {
+  placeRig(turn, -0.24, 0, 0.9, 0, "pendulum");
+  placeRig((1 - turn) as PlayerSlot, -1.6, 0, 1.8, 0, "pendulum");
+}
 
 const PIN_SPOTS: [number, number][] = (() => {
   const spots: [number, number][] = [];
@@ -50,13 +65,20 @@ export const bowl = {
   lastSpeed: 0,
 };
 
-function pinGeometry() {
+/** One geometry and material set for all ten pins (not ten copies of each). */
+function pinResources() {
   // Tenpin profile (radius, height), 38 cm tall
   const profile: [number, number][] = [
     [0, 0], [0.026, 0], [0.034, 0.01], [0.048, 0.05], [0.06, 0.1], [0.061, 0.13], [0.055, 0.17],
     [0.04, 0.215], [0.028, 0.25], [0.025, 0.27], [0.03, 0.3], [0.034, 0.33], [0.03, 0.36], [0.018, 0.377], [0, 0.38],
   ];
-  return new LatheGeometry(profile.map(([r, h]) => new Vector2(r, h)), 40);
+  return {
+    pin: new LatheGeometry(profile.map(([r, h]) => new Vector2(r, h)), 40),
+    // Solid gloss white with a red neck band: glass pins vanished against the lane at 15 m.
+    pinMat: new MeshPhysicalMaterial({ color: "#ffffff", roughness: 0.15, clearcoat: 1, clearcoatRoughness: 0.05 }),
+    band: new TorusGeometry(0.027, 0.006, 8, 24),
+    bandMat: new MeshStandardMaterial({ color: "#ff3b5c", roughness: 0.3 }),
+  };
 }
 
 function Lane() {
@@ -64,11 +86,12 @@ function Lane() {
   const mid = (LANE.start + LANE.end) / 2;
   return (
     <RigidBody type="fixed" colliders={false}>
-      {/* Lane surface, top at y = 0; oiled, so low friction */}
+      {/* Lane surface, top at y = 0; oiled, so low friction. Maple, with a soft sheen and a dim
+          reflection: a glossier lane mirrored the white studio sky and the white pins vanished on it. */}
       <CuboidCollider args={[LANE.halfW, 0.05, len / 2]} position={[0, -0.05, mid]} friction={0.04} />
       <mesh position={[0, -0.01, mid]} receiveShadow>
         <boxGeometry args={[LANE.halfW * 2, 0.02, len]} />
-        <meshStandardMaterial color="#f3e2c7" roughness={0.35} />
+        <meshStandardMaterial color="#b07a40" roughness={0.8} envMapIntensity={0.25} />
       </mesh>
       {/* Gutters, a little lower, with outer lips */}
       {[-1, 1].map((side) => (
@@ -78,9 +101,10 @@ function Lane() {
             position={[side * (GUTTER.inner + GUTTER.outer) / 2, -GUTTER.depth - 0.05, mid]}
           />
           <CuboidCollider args={[0.02, 0.06, len / 2]} position={[side * (GUTTER.outer + 0.02), 0, mid]} />
+          {/* Cool grey, so the lane's edge reads against both the gutter and the white floor */}
           <mesh position={[side * (GUTTER.inner + GUTTER.outer) / 2, -GUTTER.depth, mid]} receiveShadow>
             <boxGeometry args={[GUTTER.outer - GUTTER.inner, 0.01, len]} />
-            <meshStandardMaterial color="#e3e7ee" roughness={0.5} />
+            <meshStandardMaterial color="#9aa3b1" roughness={0.5} />
           </mesh>
         </group>
       ))}
@@ -118,8 +142,9 @@ export default function Bowling() {
   const { rapier } = useRapier();
   const ball = useRef<RapierRigidBody>(null);
   const pins = useRef<(RapierRigidBody | null)[]>([]);
-  const pinGeo = useMemo(() => pinGeometry(), []);
-  useEffect(() => () => pinGeo.dispose(), [pinGeo]);
+  const res = useMemo(() => pinResources(), []);
+  useEffect(() => () => Object.values(res).forEach((r) => r.dispose()), [res]);
+  const turn = useGameStore((st) => st.bowling.turn);
   const s = useRef({ v: new Vector3(), down: new Vector3() }).current;
 
   const setPhase = (p: typeof bowl.phase) => {
@@ -152,10 +177,16 @@ export default function Bowling() {
     rb.setAngvel({ x: 0, y: 0, z: 0 }, true);
   };
 
+  /** Hands the lane to `slot`: they step up, and a grip they are already holding does not count as a press. */
+  const giveTurn = (slot: PlayerSlot) => {
+    placeBowlers(slot);
+    bowl.prevGrip = rigs[slot].grip;
+  };
+
   // A fresh game whenever the lane opens.
   useEffect(() => {
     bowl.standing.fill(true);
-    bowl.prevGrip = rigs[0].grip;
+    giveTurn(useGameStore.getState().bowling.turn);
     setPhase("ready");
     const id = requestAnimationFrame(() => {
       rack(bowl.standing);
@@ -173,23 +204,36 @@ export default function Bowling() {
     return upright < 0.85 || Math.hypot(t.x - PIN_SPOTS[i][0], t.z - PIN_SPOTS[i][1]) > 0.12 || t.y < -0.2;
   };
 
-  /** Count the roll, call it, and set up the next ball (or end the game). */
+  /** Count the roll, call it, and set up the next ball: the same bowler's, the other's once a frame ends, or the end of the game. */
   const finishRoll = () => {
+    const g = useGameStore.getState().bowling;
+    const me = g.turn;
     const knocked = bowl.standing.filter((up, i) => up && fallen(i)).length;
-    const before = position(useGameStore.getState().bowling.rolls);
-    const rolls = [...useGameStore.getState().bowling.rolls, knocked];
-    const after = position(rolls);
+    const before = position(g.rolls[me]);
+    const rolls: typeof g.rolls = [...g.rolls];
+    rolls[me] = [...g.rolls[me], knocked];
+    const after = position(rolls[me]);
     const cleared = knocked === before.standing;
-    callout(
-      cleared && before.standing === 10 ? "Strike!" : cleared ? "Spare!" : knocked === 0 ? "Gutter ball" : `${knocked} pin${knocked === 1 ? "" : "s"}`,
-    );
-    useGameStore.setState({ bowling: { rolls, over: after.over } });
-    if (after.over) {
-      callout(`Game over · ${totalScore(rolls)}`);
+    const result =
+      cleared && before.standing === 10 ? "Strike!" : cleared ? "Spare!" : knocked === 0 ? "Gutter ball" : `${knocked} pin${knocked === 1 ? "" : "s"}`;
+
+    // A finished frame passes the lane on; every frame starts on a full rack.
+    const finished = (p: PlayerSlot) => position(rolls[p]).over;
+    const turn = after.over || after.frame !== before.frame ? nextTurn(me, g.players, finished) : me;
+    const over = finished(turn);
+    useGameStore.setState({ bowling: { ...g, rolls, turn, over } });
+
+    if (over) {
+      const [a, b] = [totalScore(rolls[0]), totalScore(rolls[1])];
+      callout(
+        g.players === 1 ? `Game over · ${totalScore(rolls[me])}` : a === b ? `Tie game · ${a}` : `${PLAYER_NAMES[a > b ? 0 : 1]} wins · ${Math.max(a, b)}–${Math.min(a, b)}`,
+      );
       setPhase("over");
     } else {
-      if (after.standing === 10) bowl.standing.fill(true);
+      callout(turn === me ? result : `${result} · ${PLAYER_NAMES[turn]} is up`);
+      if (turn !== me || after.standing === 10) bowl.standing.fill(true);
       else bowl.standing.forEach((up, i) => (bowl.standing[i] = up && !fallen(i)));
+      if (turn !== me) giveTurn(turn);
       setPhase("ready");
     }
     rack(bowl.standing);
@@ -200,19 +244,33 @@ export default function Bowling() {
     const rb = ball.current;
     if (!rb) return;
     const now = performance.now();
-    const r0 = rigs[0];
+    const g = useGameStore.getState().bowling;
+    // Only the bowler whose turn it is controls the ball.
+    const r0 = rigs[g.turn];
     const grip = r0.live && r0.grip;
     const pressed = grip && !bowl.prevGrip;
     const released = !grip && bowl.prevGrip;
     bowl.prevGrip = grip;
     const t = rb.translation();
 
-    if (bowl.phase === "ready" || bowl.phase === "over") {
+    if (bowl.phase === "ready" && !useGameStore.getState().players[g.turn].connected) {
+      // The bowler's phone left: the other player takes over on a fresh rack (they are always between frames).
+      const turn = nextTurn(g.turn, g.players, (p) => position(g.rolls[p]).over);
+      if (turn !== g.turn) {
+        useGameStore.setState({ bowling: { ...g, turn } });
+        bowl.standing.fill(true);
+        rack(bowl.standing);
+        giveTurn(turn);
+      }
+    } else if (bowl.phase === "ready" || bowl.phase === "over") {
       if (pressed) {
         if (bowl.phase === "over") {
-          useGameStore.setState({ bowling: { rolls: [], over: false } });
+          // A new game, Player 1 first again when both are playing.
+          const first: PlayerSlot = g.players === 2 && useGameStore.getState().players[0].connected ? 0 : g.turn;
+          useGameStore.setState({ bowling: { ...g, rolls: [[], []], turn: first, over: false } });
           bowl.standing.fill(true);
           rack(bowl.standing);
+          if (first !== g.turn) giveTurn(first);
         }
         bowl.history.length = 0;
         setPhase("holding");
@@ -266,10 +324,7 @@ export default function Bowling() {
 
   return (
     <>
-      <mesh rotation-x={-Math.PI / 2} position={[0, -0.02, -5]} receiveShadow>
-        <planeGeometry args={[60, 60]} />
-        <meshStandardMaterial color="#ffffff" roughness={1} toneMapped={false} />
-      </mesh>
+      <Floor y={-0.02} z={-5} />
       <Lane />
       {PIN_SPOTS.map(([x, z], i) => (
         <RigidBody
@@ -283,21 +338,15 @@ export default function Bowling() {
           angularDamping={0.2}
         >
           <CylinderCollider args={[0.17, 0.058]} position={[0, 0.19, 0]} mass={1.5} restitution={0.4} friction={0.4} />
-          {/* Solid gloss white with a red neck band: glass pins vanished against the lane at 15 m. */}
-          <mesh geometry={pinGeo} castShadow>
-            <meshPhysicalMaterial color="#ffffff" roughness={0.15} clearcoat={1} clearcoatRoughness={0.05} />
-          </mesh>
-          <mesh position={[0, 0.255, 0]} rotation-x={Math.PI / 2}>
-            <torusGeometry args={[0.027, 0.006, 8, 24]} />
-            <meshStandardMaterial color="#ff3b5c" roughness={0.3} />
-          </mesh>
+          <mesh geometry={res.pin} material={res.pinMat} castShadow />
+          <mesh geometry={res.band} material={res.bandMat} position={[0, 0.255, 0]} rotation-x={Math.PI / 2} />
         </RigidBody>
       ))}
       <RigidBody ref={ball} type="kinematicPosition" colliders={false} ccd position={[RACK.x, RACK.y, RACK.z]}>
         <BallCollider args={[BALL_R]} mass={6} restitution={0.05} friction={0.2} />
         <mesh castShadow>
           <sphereGeometry args={[BALL_R, 48, 32]} />
-          <Glass tint="#b38cff" />
+          <meshPhysicalMaterial color={BALL_COLORS[turn]} roughness={0.12} clearcoat={1} clearcoatRoughness={0.04} />
         </mesh>
       </RigidBody>
     </>

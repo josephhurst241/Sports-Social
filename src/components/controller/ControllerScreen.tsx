@@ -13,8 +13,9 @@ import {
   stepButtons,
   type ButtonScene,
 } from "@/lib/input/buttons";
+import { themeVars } from "@/lib/game/theme";
 import { connectToHost, type ClientLink } from "@/lib/net/client";
-import { P, PACKET_FLOATS, PLAYER_COLORS, PLAYER_NAMES, SEND_HZ } from "@/lib/net/protocol";
+import { P, PACKET_FLOATS, PLAYER_COLORS, PLAYER_NAMES, SEND_HZ, type PlayerSlot } from "@/lib/net/protocol";
 import {
   createSensorState,
   requestMotionPermission,
@@ -63,6 +64,7 @@ export default function ControllerScreen() {
   const error = useGameStore((s) => s.clientError);
   const slot = useGameStore((s) => s.mySlot);
   const scene = useGameStore((s) => s.clientScene);
+  const turn = useGameStore((s) => s.clientTurn);
   const [localError, setLocalError] = useState<string | null>(null);
   const [grip, setGrip] = useState(false);
 
@@ -216,17 +218,21 @@ export default function ControllerScreen() {
 
   if (status === "connected" && slot !== null) {
     const color = PLAYER_COLORS[slot];
+    // Bowling and golf take turns: the other player's turn has nothing to press.
+    const waitingFor = turn !== null && turn !== slot ? turn : null;
     return (
       <main
-        className="fixed inset-0 flex flex-col overflow-hidden bg-white select-none"
-        style={{ touchAction: "none", WebkitTouchCallout: "none" }}
+        className="themed fixed inset-0 flex flex-col overflow-hidden bg-white select-none"
+        style={{ ...themeVars(scene), touchAction: "none", WebkitTouchCallout: "none" }}
       >
-        {/* Soft color behind everything, so the frosted surfaces have something to frost. */}
+        {/* Soft color behind everything, so the frosted surfaces have something to frost:
+            the player's color up top, the game's signature below, both kept faint so
+            the controls stay the loudest thing on screen. */}
         <div
           className="absolute inset-0 transition-opacity duration-150"
           style={{
-            opacity: grip ? 1 : 0.55,
-            background: `radial-gradient(70% 50% at 25% 30%, ${color}, transparent 72%), radial-gradient(65% 50% at 80% 75%, ${color}cc, transparent 72%)`,
+            opacity: grip ? 0.9 : 0.45,
+            background: `radial-gradient(70% 50% at 25% 25%, ${color}, transparent 72%), radial-gradient(70% 55% at 75% 80%, var(--accent), transparent 72%)`,
           }}
         />
         <header className="relative z-10 flex items-center justify-between gap-3 px-5 pt-5 pb-3">
@@ -247,7 +253,11 @@ export default function ControllerScreen() {
         {localError && <p className="relative z-10 px-6 text-center text-[13px] text-ink-2">{localError}</p>}
 
         {mode === "buttons" ? (
-          <ButtonPad scene={scene as ButtonScene} state={buttons.current} />
+          waitingFor !== null ? (
+            <Waiting slot={waitingFor} />
+          ) : (
+            <ButtonPad scene={scene as ButtonScene} state={buttons.current} />
+          )
         ) : (
           <div
             ref={pane}
@@ -263,8 +273,12 @@ export default function ControllerScreen() {
           >
             <div />
             <div className="px-8 text-center">
-              <div className="text-[34px] font-semibold tracking-tight text-ink">{grip ? "Gripping" : "Touch to grip"}</div>
-              <div className="mt-3 text-[17px] leading-snug text-ink-2">{MOTION_HINTS[scene] ?? MOTION_HINTS.hub}</div>
+              <div className={`text-[34px] font-semibold tracking-tight ${grip ? "text-accent-ink" : "text-ink"}`}>
+                {waitingFor !== null ? `${PLAYER_NAMES[waitingFor]}'s turn` : grip ? "Gripping" : "Touch to grip"}
+              </div>
+              <div className="mt-3 text-[17px] leading-snug text-ink-2">
+                {waitingFor !== null ? "You're up next. Watch the laptop." : (MOTION_HINTS[scene] ?? MOTION_HINTS.hub)}
+              </div>
             </div>
             <div className="text-center text-[13px] leading-relaxed text-ink-2">
               Two fingers: recenter
@@ -386,6 +400,22 @@ function HoldButton({
   );
 }
 
+/** Shown instead of the buttons while the other player takes their turn. */
+function Waiting({ slot }: { slot: PlayerSlot }) {
+  return (
+    <div className="relative z-10 flex flex-1 flex-col px-5 pb-6">
+      <div className="panel flex flex-1 flex-col items-center justify-center rounded-[36px] text-center">
+        <span
+          className="h-3 w-3 rounded-full shadow-[inset_0_0_0_1px_rgb(0_0_0/0.14)]"
+          style={{ background: PLAYER_COLORS[slot] }}
+        />
+        <span className="mt-4 text-[34px] font-semibold tracking-tight">{PLAYER_NAMES[slot]}&apos;s turn</span>
+        <span className="mt-2 text-[15px] text-ink-2">You&apos;re up next. Watch the laptop.</span>
+      </div>
+    </div>
+  );
+}
+
 const ARROW = "panel flex h-20 w-20 items-center justify-center rounded-full text-[30px] font-semibold active:opacity-70";
 
 /** The Buttons layout for whatever the laptop is showing. */
@@ -405,13 +435,14 @@ function ButtonPad({ scene, state }: { scene: ButtonScene; state: ReturnType<typ
     return () => cancelAnimationFrame(raf);
   }, [state]);
 
-  const big = "panel flex flex-1 flex-col items-center justify-center rounded-[36px] text-center";
+  // The main action is the one inverse surface on screen, so it never blends with the arrows.
+  const big = "panel-ink flex flex-1 flex-col items-center justify-center rounded-[36px] text-center";
 
   if (scene === "hub") {
     return (
       <div className="relative z-10 flex flex-1 flex-col gap-5 px-5 pb-6">
         <div className="flex flex-1 flex-col items-center justify-center">
-          <div className="text-[15px] font-semibold text-ink-2">Aiming at</div>
+          <div className="text-[15px] font-semibold text-accent-ink">Aiming at</div>
           <div className="mt-1 text-[40px] font-semibold tracking-tight">{islandName(state)}</div>
           <div className="mt-8 flex gap-6">
             <HoldButton label="Previous game" className={ARROW} onDown={() => (nudge(state, -1), bump())}>
@@ -424,7 +455,7 @@ function ButtonPad({ scene, state }: { scene: ButtonScene; state: ReturnType<typ
         </div>
         <HoldButton className={`${big} max-h-48`} onDown={() => press(state)} onUp={() => release(state)}>
           <span className="text-[30px] font-semibold tracking-tight">Select</span>
-          <span className="mt-1 text-[15px] text-ink-2">Tap to choose, tap again to play</span>
+          <span className="mt-1 text-[15px] text-white/75">Tap to choose, tap again to play</span>
         </HoldButton>
       </div>
     );
@@ -435,7 +466,7 @@ function ButtonPad({ scene, state }: { scene: ButtonScene; state: ReturnType<typ
       <div className="relative z-10 flex flex-1 flex-col px-5 pb-6">
         <HoldButton className={big} onDown={() => press(state)} onUp={() => release(state)}>
           <span className="text-[40px] font-semibold tracking-tight">Swing</span>
-          <span className="mt-2 max-w-[24ch] text-[15px] leading-snug text-ink-2">
+          <span className="mt-2 max-w-[24ch] text-[15px] leading-snug text-white/75">
             Hold to wind up, let go to swing. The first press serves.
           </span>
         </HoldButton>
@@ -453,7 +484,7 @@ function ButtonPad({ scene, state }: { scene: ButtonScene; state: ReturnType<typ
           ‹
         </HoldButton>
         <div className="text-center">
-          <div className="text-[13px] font-semibold text-ink-3">Aim</div>
+          <div className="text-[13px] font-semibold text-accent-ink">Aim</div>
           <div className="tabular text-[28px] font-semibold">
             {deg === 0 ? "Straight" : `${Math.abs(deg)}° ${deg > 0 ? "right" : "left"}`}
           </div>
@@ -463,11 +494,11 @@ function ButtonPad({ scene, state }: { scene: ButtonScene; state: ReturnType<typ
         </HoldButton>
       </div>
       <div className="panel h-3 overflow-hidden rounded-full">
-        <div ref={meter} className="h-full origin-left rounded-full bg-ink" style={{ transform: "scaleX(0)" }} />
+        <div ref={meter} className="h-full origin-left rounded-full bg-accent-ink" style={{ transform: "scaleX(0)" }} />
       </div>
       <HoldButton className={big} onDown={() => press(state)} onUp={() => release(state)}>
         <span className="text-[40px] font-semibold tracking-tight">{verb}</span>
-        <span className="mt-2 max-w-[24ch] text-[15px] leading-snug text-ink-2">
+        <span className="mt-2 max-w-[24ch] text-[15px] leading-snug text-white/75">
           Hold to wind up (longer is {scene === "bowling" ? "faster" : "further"}), let go to {verb.toLowerCase()}.
         </span>
       </HoldButton>

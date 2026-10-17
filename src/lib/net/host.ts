@@ -9,6 +9,7 @@ import {
   type PlayerSlot,
 } from "./protocol";
 import {
+  currentTurn,
   requestRecenter,
   resetTelemetry,
   setPlayer,
@@ -94,7 +95,16 @@ export async function startHost(): Promise<() => void> {
   });
   hostPeer.on("error", (err) => console.warn("[host] peer error", err.type, err));
 
+  // Tell the phones whose turn it is whenever that changes (a turn-based game
+  // starts, ends, or passes to the other player), so the waiting one says so.
+  let turn = currentTurn();
+  const stopTurns = useGameStore.subscribe(() => {
+    const next = currentTurn();
+    if (next !== turn) broadcast({ t: "turn", slot: (turn = next) });
+  });
+
   return () => {
+    stopTurns();
     conns.forEach((c, i) => {
       c?.close();
       release(i as PlayerSlot, c);
@@ -139,6 +149,7 @@ function attach(conn: DataConnection) {
   setPlayer(slot, { connected: true, peerId: conn.peer });
   conn.send({ t: "welcome", slot } satisfies HostToClient);
   conn.send({ t: "scene", scene: useGameStore.getState().scene } satisfies HostToClient);
+  conn.send({ t: "turn", slot: currentTurn() } satisfies HostToClient);
 
   conn.on("data", (raw) => {
     const msg = raw as ClientToHost;

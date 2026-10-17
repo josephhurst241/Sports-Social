@@ -112,6 +112,9 @@ function IslandView({ island }: { island: Island }) {
   const center = useMemo(() => islandCenter(island), [island]);
   const hovered = useGameStore((s) => s.hovered[0] === island.id || s.hovered[1] === island.id);
   const selected = useGameStore((s) => s.selected === island.id);
+  // The name tags are DOM overlays, drawn above the page's handshake card, so
+  // they only appear once a phone is in and that card is gone.
+  const anyone = useGameStore((s) => s.players[0].connected || s.players[1].connected);
   const scale = useRef(1);
   const Icon = ICONS[island.id];
 
@@ -137,14 +140,16 @@ function IslandView({ island }: { island: Island }) {
       <group ref={icon}>
         <Icon tint={island.tint} />
       </group>
-      <Html position={[0, -1.85, 0]} center distanceFactor={30} style={{ pointerEvents: "none" }}>
-        <div
-          className="panel rounded-full px-4 py-1.5 text-[15px] font-semibold whitespace-nowrap transition-colors"
-          style={{ color: hovered || selected ? "#000" : "#3c3c43" }}
-        >
-          {island.name}
-        </div>
-      </Html>
+      {anyone && (
+        <Html position={[0, -1.85, 0]} center distanceFactor={30} style={{ pointerEvents: "none" }}>
+          <div
+            className="panel rounded-full px-4 py-1.5 text-[15px] font-semibold whitespace-nowrap transition-colors"
+            style={{ color: hovered || selected ? "#000" : "#3c3c43" }}
+          >
+            {island.name}
+          </div>
+        </Html>
+      )}
     </group>
   );
 }

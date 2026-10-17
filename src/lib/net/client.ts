@@ -56,6 +56,8 @@ export async function connectToHost(code: string): Promise<ClientLink> {
       useGameStore.setState({ clientStatus: "connected", mySlot: msg.slot });
     } else if (msg.t === "scene") {
       useGameStore.setState({ clientScene: msg.scene as never });
+    } else if (msg.t === "turn") {
+      useGameStore.setState({ clientTurn: msg.slot });
     } else if (msg.t === "full") {
       useGameStore.setState({ clientStatus: "full" });
     }

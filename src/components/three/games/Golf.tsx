@@ -7,14 +7,18 @@ import { MathUtils, Vector3, type Mesh } from "three";
 import { placeRig, rigs } from "@/lib/game/rig";
 import { setView } from "@/lib/game/view";
 import { BALL_R, CUP_R, CUP_SPEED, HOLES, scoreName } from "@/lib/games/golf";
-import { callout, useGameStore } from "@/store/gameStore";
+import { PLAYER_NAMES, type PlayerSlot } from "@/lib/net/protocol";
+import { callout, nextTurn, useGameStore } from "@/store/gameStore";
 import { PUTTER } from "../Avatar";
+import Floor from "../Floor";
 import { BackgroundGlass, Glass } from "../Glass";
 
 // Mini golf: hold the phone screen, swing it like a putter, let go to strike.
 // The putter head's forward speed at release sets the power; where the back
 // of the phone points aims the putt (the line on the green shows it).
-// Player 1 putts; the avatar is placed beside the ball for every stroke.
+// With two phones in, each player plays a whole hole, then the other plays
+// it from the tee. Whoever's turn it is stands beside the ball for every
+// stroke; the other watches from the side.
 
 const RAIL_H = 0.12;
 /** Ball speed = putter-head speed at release x this, within [MIN, MAX] m/s. */
@@ -51,9 +55,11 @@ function Green({ hole }: { hole: number }) {
     <RigidBody type="fixed" colliders={false} key={hole}>
       {/* Turf, top at y = 0 */}
       <CuboidCollider args={[w / 2, 0.05, d / 2]} position={[0, -0.05, 0]} friction={0.6} restitution={0.1} />
+      {/* Matte turf with a dim reflection: a glossier top mirrored the white studio
+          sky at this low camera angle and washed the green out, hiding the white ball. */}
       <mesh position={[0, -0.02, 0]} receiveShadow>
         <boxGeometry args={[w, 0.04, d]} />
-        <meshStandardMaterial color="#7ee0a0" roughness={0.6} />
+        <meshStandardMaterial color="#2e9a57" roughness={1} envMapIntensity={0.35} />
       </mesh>
       {/* Rails */}
       {[
@@ -107,6 +113,7 @@ export default function Golf() {
   const ball = useRef<RapierRigidBody>(null);
   const aimLine = useRef<Mesh>(null);
   const hole = useGameStore((s) => s.golf.hole);
+  const turn = useGameStore((s) => s.golf.turn);
   const s = useRef({ head: new Vector3(), down: new Vector3(), fwd: new Vector3(), tmp: new Vector3() }).current;
 
   const setPhase = (p: typeof golfState.phase) => {
@@ -114,10 +121,11 @@ export default function Golf() {
     golfState.phaseAt = performance.now();
   };
 
-  /** Ball at rest on the lie; the player stands beside it facing the cup. */
+  /** Ball at rest on the lie; whoever's turn it is stands beside it facing the cup. */
   const address = () => {
     const rb = ball.current;
-    const h = HOLES[useGameStore.getState().golf.hole];
+    const { hole, turn } = useGameStore.getState().golf;
+    const h = HOLES[hole];
     if (!rb) return;
     const lie = golfState.lie;
     rb.setBodyType(rapier.RigidBodyType.KinematicPositionBased, true);
@@ -131,31 +139,34 @@ export default function Golf() {
     const back = 0.16, side = 0.24;
     const x = lie.x - (-Math.sin(f)) * back - Math.cos(f) * side;
     const z = lie.z - (-Math.cos(f)) * back + Math.sin(f) * side;
-    placeRig(0, x, 0, z, f, "pendulum");
-    placeRig(1, x - Math.cos(f) * 1.6, 0, z + Math.sin(f) * 1.6, f, "pendulum");
-    golfState.prevGrip = rigs[0].grip;
+    placeRig(turn, x, 0, z, f, "pendulum");
+    placeRig((1 - turn) as PlayerSlot, x - Math.cos(f) * 1.6, 0, z + Math.sin(f) * 1.6, f, "pendulum");
+    golfState.prevGrip = rigs[turn].grip;
     setPhase("aim");
   };
 
-  // New hole: ball on the tee.
+  // New hole, or the next player on this one: ball on the tee.
   useEffect(() => {
     const h = HOLES[hole];
     golfState.lie.set(h.tee[0], 0, h.tee[1]);
     const id = requestAnimationFrame(address);
     return () => cancelAnimationFrame(id);
-  }, [hole]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [hole, turn]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useFrame((_, delta) => {
     const rb = ball.current;
     if (!rb) return;
     const now = performance.now();
-    const r0 = rigs[0];
+    const g = useGameStore.getState().golf;
+    // Only the golfer whose turn it is controls the putter.
+    const r0 = rigs[g.turn];
     const grip = r0.live && r0.grip;
     const pressed = grip && !golfState.prevGrip;
     const released = !grip && golfState.prevGrip;
     golfState.prevGrip = grip;
-    const g = useGameStore.getState().golf;
     const h = HOLES[g.hole];
+    /** Has this player finished the current hole? */
+    const holedOut = (p: PlayerSlot) => g.cards[p].length > g.hole;
     const t = rb.translation();
 
     // Aim: straight at the cup, turned by the phone's heading.
@@ -168,7 +179,14 @@ export default function Golf() {
     const headSpeed = s.tmp.subVectors(s.head, golfState.prevHead).dot(s.fwd) / Math.max(delta, 1e-3);
     golfState.prevHead.copy(s.head);
 
-    if (golfState.phase === "aim" || golfState.phase === "address") {
+    if (golfState.phase === "aim" && !useGameStore.getState().players[g.turn].connected) {
+      // The golfer's phone left: the other player, if still to play this hole, tees off (the new turn re-tees the ball).
+      const turn = nextTurn(g.turn, g.players, holedOut);
+      if (turn !== g.turn) {
+        setPhase("next");
+        useGameStore.setState({ golf: { ...g, turn, strokes: 0 } });
+      }
+    } else if (golfState.phase === "aim" || golfState.phase === "address") {
       if (golfState.phase === "aim" && pressed) {
         golfState.history.length = 0;
         setPhase("address");
@@ -210,10 +228,20 @@ export default function Golf() {
         rb.setBodyType(rapier.RigidBodyType.KinematicPositionBased, true);
         rb.setTranslation({ x: h.cup[0], y: -0.06, z: h.cup[1] }, true);
         const strokes = g.strokes;
-        callout(`${scoreName(strokes, h.par)} · ${strokes} stroke${strokes === 1 ? "" : "s"}`);
-        const card = [...g.card, strokes];
-        useGameStore.setState({ golf: { ...g, card, over: card.length === HOLES.length } });
-        setPhase(card.length === HOLES.length ? "over" : "holed");
+        const cards: typeof g.cards = [...g.cards];
+        cards[g.turn] = [...g.cards[g.turn], strokes];
+        // Over once nobody is left to play this hole and it was the last one.
+        const waiting = nextTurn(g.turn, g.players, (p) => cards[p].length > g.hole) !== g.turn;
+        const over = !waiting && g.hole === HOLES.length - 1;
+        useGameStore.setState({ golf: { ...g, cards, over } });
+        if (over && g.players === 2) {
+          const [a, b] = [cards[0].reduce((n, x) => n + x, 0), cards[1].reduce((n, x) => n + x, 0)];
+          // Fewest strokes wins.
+          callout(a === b ? `Tied · ${a} strokes each` : `${PLAYER_NAMES[a < b ? 0 : 1]} wins · ${Math.min(a, b)} to ${Math.max(a, b)}`);
+        } else {
+          callout(`${scoreName(strokes, h.par)} · ${strokes} stroke${strokes === 1 ? "" : "s"}`);
+        }
+        setPhase(over ? "over" : "holed");
       } else if (t.y < -0.5) {
         callout("Out of bounds · +1 stroke");
         useGameStore.setState({ golf: { ...g, strokes: g.strokes + 1 } });
@@ -227,13 +255,19 @@ export default function Golf() {
         }
       }
     } else if (golfState.phase === "holed" && now - golfState.phaseAt > NEXT_HOLE_MS) {
-      // Advance exactly once; the new hole's effect tees the ball up and sets "aim".
+      // Advance exactly once; the effect for the new hole or turn tees the ball up and sets "aim".
+      // The other player plays this hole if they still have to, else on to the next hole, Player 1 first.
       setPhase("next");
-      useGameStore.setState({ golf: { hole: g.hole + 1, strokes: 0, card: g.card, over: false } });
+      const other = nextTurn(g.turn, g.players, holedOut);
+      const first: PlayerSlot = g.players === 2 && useGameStore.getState().players[0].connected ? 0 : g.turn;
+      const [hole, turn] = other !== g.turn ? [g.hole, other] : [g.hole + 1, first];
+      useGameStore.setState({ golf: { ...g, hole, turn, strokes: 0 } });
+      if (g.players === 2) callout(`${hole === g.hole ? "" : `Hole ${hole + 1} · `}${PLAYER_NAMES[turn]} is up`);
     } else if (golfState.phase === "over" && pressed) {
       // Play again from hole 1 (the hole change re-tees the ball).
       setPhase("next");
-      useGameStore.setState({ golf: { hole: 0, strokes: 0, card: [], over: false } });
+      const first: PlayerSlot = g.players === 2 && useGameStore.getState().players[0].connected ? 0 : g.turn;
+      useGameStore.setState({ golf: { ...g, hole: 0, turn: first, strokes: 0, cards: [[], []], over: false } });
     }
 
     // Aim line on the green while lining up a stroke.
@@ -263,10 +297,7 @@ export default function Golf() {
 
   return (
     <>
-      <mesh rotation-x={-Math.PI / 2} position={[0, -0.05, 0]} receiveShadow>
-        <planeGeometry args={[60, 60]} />
-        <meshStandardMaterial color="#ffffff" roughness={1} toneMapped={false} />
-      </mesh>
+      <Floor y={-0.05} />
       <Green hole={hole} />
       <mesh ref={aimLine} visible={false}>
         <planeGeometry args={[0.025, 1.2]} />

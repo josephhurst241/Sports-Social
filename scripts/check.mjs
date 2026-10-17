@@ -255,7 +255,7 @@ try {
   await sleep(500);
   await phone.shot("13-phone-buttons-bowling");
   await sleep(7000);
-  const bRolls = await host.evaluate(`window.__glass.store.getState().bowling.rolls`);
+  const bRolls = await host.evaluate(`window.__glass.store.getState().bowling.rolls[0]`);
   check(bRolls.length === 1 && bRolls[0] > 0, `buttons: holding Bowl ~1 s knocked ${bRolls[0]} pins (ball ${(await host.evaluate("window.__glass.bowl.lastSpeed")).toFixed(1)} m/s)`);
   await touch(byText("‹ Hub"));
   await sleep(700);
@@ -269,7 +269,7 @@ try {
   await sleep(800);
   await touch(byText("Putt"), 700);
   await sleep(5500);
-  const gState = await host.evaluate(`({ strokes: window.__glass.store.getState().golf.strokes, card: window.__glass.store.getState().golf.card, speed: window.__glass.golf.lastSpeed })`);
+  const gState = await host.evaluate(`({ strokes: window.__glass.store.getState().golf.strokes, card: window.__glass.store.getState().golf.cards[0], speed: window.__glass.golf.lastSpeed })`);
   check(gState.strokes >= 1 || gState.card.length > 0, `buttons: holding Putt ~0.7 s putted at ${gState.speed.toFixed(1)} m/s`);
   await touch(byText("‹ Hub"));
   await sleep(700);
@@ -311,7 +311,7 @@ try {
   await sleep(1500);
   await host.shot("8-bowling-roll");
   await play(hold(pitch(0), 0, 6500)); // keep the phone "alive" while the pins settle
-  const rolls = await host.evaluate(`window.__glass.store.getState().bowling.rolls`);
+  const rolls = await host.evaluate(`window.__glass.store.getState().bowling.rolls[0]`);
   await host.shot("9-bowling-scored");
   check(bowled.phase === "rolling" || bowled.phase === "settling", `bowling: the release rolled the ball at ${bowled.speed} m/s`);
   check(rolls.length === 1 && rolls[0] > 0, `bowling: first roll knocked ${rolls[0]} pins`);
@@ -323,7 +323,7 @@ try {
   const putt = (back, through, ms) => [...hold(pitch(0), 1, 200), ...sweep(0, -back, 350, 1, pitch), ...sweep(-back, through, ms, 1, pitch), ...hold(pitch(through), 0, 150)];
   for (let i = 0; i < 4; i++) {
     const g = await host.evaluate(`window.__glass.store.getState().golf`);
-    if (g.card.length) break;
+    if (g.cards[0].length) break;
     const before = await host.evaluate(`window.__glass.golf.lie.toArray()`);
     // Judge the pace from the distance, as a player would: rolling resistance
     // ~1.1 m/s² means v ~ sqrt(2 * 1.1 * d); the swing's head speed is v / 1.7.
@@ -337,8 +337,8 @@ try {
   }
   const golf = await host.evaluate(`({ ...window.__glass.store.getState().golf, phase: window.__glass.golf.phase })`);
   await host.shot("10-golf");
-  check(golf.card.length > 0 || golf.strokes > 0, `golf: ${golf.card.length ? `holed in ${golf.card[0]}` : `${golf.strokes} strokes taken, ball still out`}`);
-  if (golf.card.length) {
+  check(golf.cards[0].length > 0 || golf.strokes > 0, `golf: ${golf.cards[0].length ? `holed in ${golf.cards[0][0]}` : `${golf.strokes} strokes taken, ball still out`}`);
+  if (golf.cards[0].length) {
     await play(hold(pitch(0), 0, 3200));
     const next = await host.evaluate(`({ hole: window.__glass.store.getState().golf.hole, phase: window.__glass.golf.phase })`);
     await host.shot("10b-golf-hole2");
