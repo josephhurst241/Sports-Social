@@ -1,7 +1,8 @@
 import { Vector3 } from "three";
 import type { PlayerSlot } from "@/lib/net/protocol";
 import { sendResult } from "@/lib/net/host";
-import { feedback, playerName, useGameStore } from "@/store/gameStore";
+import { playSound } from "@/lib/audio/audioManager";
+import { announce, feedback, playerName, useGameStore } from "@/store/gameStore";
 
 // Table layout, meters. Origin is the table center on the floor, the long
 // axis along Z. Player 1 stands at +Z facing -Z, the opponent at -Z facing +Z.
@@ -57,6 +58,7 @@ export function onPaddleHit(slot: PlayerSlot) {
   game.farBounces = 0;
   game.touchedNet = false;
   game.pendingAssist = slot;
+  playSound("hit");
   const pp = useGameStore.getState().pingpong;
   useGameStore.setState({ pingpong: { ...pp, rally: pp.rally + 1 } });
 }
@@ -71,7 +73,7 @@ export function onBallTouch(what: "table" | "net", z: number) {
   if (game.lastHitter !== null && Math.sign(z) === (game.lastHitter === 0 ? -1 : 1)) game.farBounces++;
 }
 
-/** Ends the rally: scores it, sets the callout and picks the next server. */
+/** Ends the rally: scores it, calls it (a card for a win or a change of server) and picks the next server. */
 export function endRally(winner: PlayerSlot, reason: string) {
   const pp = useGameStore.getState().pingpong;
   const score = [...pp.score] as [number, number];
@@ -79,11 +81,9 @@ export function endRally(winner: PlayerSlot, reason: string) {
   const Name = (slot: PlayerSlot) => (slot === 1 && pp.cpu ? "CPU" : playerName(slot));
   const lead = Math.abs(score[0] - score[1]);
   const over = Math.max(...score) >= POINTS_TO_WIN && lead >= 2;
-  const text = over
-    ? `${Name(winner)} wins ${Math.max(...score)}–${Math.min(...score)}`
-    : `${reason} · ${Name(winner)} scores`;
   game.pointsPlayed++;
-  if (game.pointsPlayed % 2 === 0) game.server = (1 - game.server) as PlayerSlot;
+  const switched = game.pointsPlayed % 2 === 0;
+  if (switched) game.server = (1 - game.server) as PlayerSlot;
   if (over) {
     // Each human player's game, for their career (the CPU keeps none).
     sendResult(0, { game: "pingpong", score: [score[0], score[1]], opponent: pp.cpu ? "cpu" : "human", opponentName: Name(1) });
@@ -93,10 +93,17 @@ export function endRally(winner: PlayerSlot, reason: string) {
   // Make or miss, where the ball is (on the table, or wherever it went).
   const kind = over || reason === "Clean winner" || reason === "Double bounce" ? "make" : "miss";
   feedback(kind, game.ballPos.x, Math.max(0, Math.min(game.ballPos.y, TOP_Y)), game.ballPos.z);
-  useGameStore.setState({
-    pingpong: { ...pp, score: over ? [0, 0] : score },
-    callout: { text, at: performance.now(), kind },
-  });
+  useGameStore.setState({ pingpong: { ...pp, score: over ? [0, 0] : score } });
+  if (over) {
+    announce(`${Name(winner)} wins`, `${Math.max(...score)}–${Math.min(...score)}`);
+    playSound("strike");
+  } else {
+    useGameStore.setState({ callout: { text: `${reason} · ${Name(winner)} scores`, at: performance.now(), kind } });
+    if (switched) {
+      announce(`${Name(game.server)} to serve`);
+      playSound("turn");
+    }
+  }
 }
 
 /**

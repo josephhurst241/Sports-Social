@@ -7,10 +7,11 @@ import { MathUtils, Vector3, type Group, type Mesh } from "three";
 import { placeRig, rigs } from "@/lib/game/rig";
 import { assistAim } from "@/lib/game/assist";
 import { setView } from "@/lib/game/view";
-import { BALL_R, CUP_G, CUP_R, HOLES, cupOutcome, scoreName, type CupPass } from "@/lib/games/golf";
+import { BALL_R, CUP_G, CUP_R, HOLES, PAR, cupOutcome, scoreName, type CupPass } from "@/lib/games/golf";
 import type { PlayerSlot } from "@/lib/net/protocol";
 import { sendResult } from "@/lib/net/host";
-import { callout, feedback, nextTurn, playerName, useGameStore } from "@/store/gameStore";
+import { playSound } from "@/lib/audio/audioManager";
+import { announce, callout, feedback, nextTurn, playerName, useGameStore } from "@/store/gameStore";
 import { PUTTER } from "../Avatar";
 import Floor from "../Floor";
 import { BackgroundGlass, Glass } from "../Glass";
@@ -226,13 +227,17 @@ export default function Golf() {
         sendResult(p, { game: "golf", strokes: cards[p], par: HOLES.slice(0, cards[p].length).map((x) => x.par), holes: HOLES.length, won });
       }
     }
+    // Headline moments get the big card (and are not called out again): a
+    // hole in one, the end of the round.
     if (over && g.players === 2) {
       const [a, b] = [total(0), total(1)];
       // Fewest strokes wins.
-      callout(a === b ? `Tied · ${a} strokes each` : `${playerName(a < b ? 0 : 1)} wins · ${Math.min(a, b)} to ${Math.max(a, b)}`, "make");
-    } else {
-      callout(`${scoreName(strokes, h.par)} · ${strokes} stroke${strokes === 1 ? "" : "s"}`, "make");
-    }
+      if (a === b) announce("Tied", `${a} strokes each`);
+      else announce(`${playerName(a < b ? 0 : 1)} wins`, `${Math.min(a, b)} to ${Math.max(a, b)}`);
+    } else if (strokes === 1) announce(scoreName(strokes, h.par));
+    else callout(`${scoreName(strokes, h.par)} · ${strokes} strokes`, "make");
+    if (over && g.players === 1) announce("Round complete", `${total(g.turn)} strokes · par ${PAR}`);
+    playSound("strike", strokes === 1 || over ? 1 : 0.6);
     setPhase(over ? "over" : "holed");
   };
 
@@ -298,6 +303,7 @@ export default function Golf() {
           } else {
             // Topspin to match, so it rolls from the start instead of skidding.
             roll(t.x, t.z, s.fwd.x, s.fwd.z, Math.min(PUTT_MAX, speed));
+            playSound("hit", speed / 3);
             useGameStore.setState({ golf: { ...g, strokes: g.strokes + 1 } });
           }
         }
@@ -410,7 +416,10 @@ export default function Golf() {
       const first: PlayerSlot = g.players === 2 && useGameStore.getState().players[0].connected ? 0 : g.turn;
       const [hole, turn] = other !== g.turn ? [g.hole, other] : [g.hole + 1, first];
       useGameStore.setState({ golf: { ...g, hole, turn, strokes: 0 } });
-      if (g.players === 2) callout(`${hole === g.hole ? "" : `Hole ${hole + 1} · `}${playerName(turn)} is up`);
+      if (g.players === 2) {
+        announce(`${playerName(turn)}’s turn`, hole === g.hole ? undefined : `Hole ${hole + 1}`);
+        playSound("turn");
+      }
     } else if (golfState.phase === "over" && pressed) {
       // Play again from hole 1 (the hole change re-tees the ball).
       setPhase("next");

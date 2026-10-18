@@ -26,6 +26,7 @@ import {
 } from "three";
 import { ISLANDS, ISLAND_HIT_RADIUS, NEXUS_RADIUS, islandCenter, type Island, type IslandId } from "@/lib/hub/islands";
 import { PLAYER_COLORS, type PlayerSlot } from "@/lib/net/protocol";
+import { playSound } from "@/lib/audio/audioManager";
 import { useGameStore } from "@/store/gameStore";
 import { rigs } from "@/lib/game/rig";
 import { enterGame } from "@/lib/game/scenes";
@@ -242,6 +243,7 @@ function Pointer({ slot }: { slot: PlayerSlot }) {
       const next = [...hovered] as typeof hovered;
       next[slot] = target;
       useGameStore.setState({ hovered: next });
+      if (target) playSound("ui_hover");
     }
 
     // Tap the phone (grip rising edge): select what you point at, tap it again

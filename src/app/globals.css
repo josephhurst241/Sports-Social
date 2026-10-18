@@ -8,6 +8,9 @@
   --color-ink: #000000;
   --color-ink-2: #3c3c43;
   --color-ink-3: #8e8e93;
+  /* A spring (stiffness 300, damping 20, mass 1: about 11% overshoot, settled
+     in 0.56 s), sampled for CSS. Use with `duration-560 ease-spring`. */
+  --ease-spring: linear(0, 0.0703, 0.2355, 0.4384, 0.6384, 0.8106, 0.9429, 1.033, 1.085, 1.1065, 1.106, 1.0919, 1.0711, 1.0488, 1.0285, 1.0121, 1.0003, 0.9929, 0.9892, 0.9882, 0.9892, 0.9912, 0.9936, 0.996, 1);
 }
 
 /* The scene's color signature (lib/game/theme.ts themeVars), set on the page
@@ -236,6 +239,38 @@ html[data-intro="skip"] .splash {
   .callout-make,
   .callout-miss {
     animation: none;
+  }
+}
+
+/* The big announcement card (GameStateOverlay): springs up into place,
+   then lifts away. Reduced motion: a plain fade. */
+@keyframes announce-in {
+  from {
+    opacity: 0;
+    transform: translateY(28px) scale(0.96);
+  }
+}
+@keyframes announce-out {
+  to {
+    opacity: 0;
+    transform: translateY(-12px) scale(0.98);
+  }
+}
+.announce-in {
+  animation: announce-in 0.56s var(--ease-spring) both;
+}
+.announce-out {
+  animation: announce-out 0.26s cubic-bezier(0.4, 0, 1, 1) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .announce-in,
+  .announce-out {
+    animation-name: splash-fade;
+    animation-duration: 0.2s;
+    animation-timing-function: ease;
+  }
+  .announce-out {
+    animation-direction: reverse;
   }
 }
 

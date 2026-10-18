@@ -1,9 +1,11 @@
 // The logo's sound: a soft glass chime, made in the browser (Web Audio), so
 // there is no file to load. Browsers allow sound only after a click or key on
 // the page (or for sites they trust), so this plays when allowed and is
-// otherwise silent; it never queues up to play late.
+// otherwise silent; it never queues up to play late. It shares the sound
+// effects' audio context (lib/audio/audioManager.ts).
 
-let ctx: AudioContext | null = null;
+import { audioContext } from "@/lib/audio/audioManager";
+
 /** When it last played, so two triggers close together (a skip click and the glint) chime once. */
 let lastAt = -Infinity;
 
@@ -17,18 +19,10 @@ const PARTIALS: [number, number, number][] = [
 
 /** Plays the chime now if the browser allows sound. Returns whether it did. */
 export function playChime(volume = 0.16) {
-  if (typeof window === "undefined" || !("AudioContext" in window)) return false;
   if (performance.now() - lastAt < 1500) return false;
-  try {
-    ctx ??= new AudioContext();
-  } catch {
-    return false;
-  }
   // Still blocked (no click or key yet): stay silent rather than play later.
-  if (ctx.state !== "running") {
-    if (navigator.userActivation?.isActive) void ctx.resume();
-    else return false;
-  }
+  const ctx = audioContext();
+  if (!ctx) return false;
   lastAt = performance.now();
   const t = ctx.currentTime + 0.01;
   const out = ctx.createGain();

@@ -1,7 +1,8 @@
 import type { IslandId } from "@/lib/hub/islands";
 import { broadcast } from "@/lib/net/host";
 import type { PlayerSlot } from "@/lib/net/protocol";
-import { useGameStore, type SceneId } from "@/store/gameStore";
+import { playSound } from "@/lib/audio/audioManager";
+import { announce, playerName, useGameStore, type SceneId } from "@/store/gameStore";
 import { PLAYER_Z, game as pingpong } from "@/lib/games/pingpong";
 import { placeRig, rigs } from "./rig";
 
@@ -17,7 +18,7 @@ export function placeInHub() {
 }
 
 function setScene(scene: SceneId) {
-  useGameStore.setState({ scene, callout: null, selected: null, hovered: [null, null] });
+  useGameStore.setState({ scene, callout: null, announcements: [], selected: null, hovered: [null, null] });
   broadcast({ t: "scene", scene });
 }
 
@@ -46,6 +47,10 @@ export function enterGame(id: IslandId) {
     useGameStore.setState({ golf: { hole: 0, turn: first, players: two, strokes: 0, cards: [[], []], over: false } });
   }
   setScene(id);
+  // The opening card: who serves, or who goes first when two take turns.
+  if (id === "pingpong") announce(`${playerName(0)} to serve`, "First to 11");
+  else if (two === 2) announce(`${playerName(first)}’s turn`, id === "golf" ? "Hole 1" : "Frame 1");
+  if (id === "pingpong" || two === 2) playSound("turn");
 }
 
 export function exitToHub() {

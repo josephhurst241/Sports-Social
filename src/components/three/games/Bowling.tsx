@@ -10,7 +10,8 @@ import { setView } from "@/lib/game/view";
 import { PINS, position, totalScore } from "@/lib/games/bowling";
 import type { PlayerSlot } from "@/lib/net/protocol";
 import { sendResult } from "@/lib/net/host";
-import { callout, feedback, nextTurn, playerName, useGameStore } from "@/store/gameStore";
+import { playSound } from "@/lib/audio/audioManager";
+import { announce, callout, feedback, nextTurn, playerName, useGameStore } from "@/store/gameStore";
 import Floor from "../Floor";
 import { BackgroundGlass } from "../Glass";
 
@@ -258,15 +259,27 @@ export default function Bowling() {
     if (shot === "make") feedback("make", 0, 0, LANE.headPin - 0.45);
     else if (shot === "miss") feedback("miss", MathUtils.clamp(ball.current?.translation().x ?? 0, -0.7, 0.7), 0, LANE.headPin + 0.8);
 
+    // Headline moments get the big card (and are not called out again): a
+    // strike or spare, the lane passing to the other bowler, the end.
     if (over) {
       const [a, b] = [totalScore(rolls[0]), totalScore(rolls[1])];
-      callout(
-        g.players === 1 ? `Game over · ${totalScore(rolls[me])}` : a === b ? `Tie game · ${a}` : `${playerName(a > b ? 0 : 1)} wins · ${Math.max(a, b)}–${Math.min(a, b)}`,
-        shot,
-      );
+      if (g.players === 1) announce("Game over", `${totalScore(rolls[me])}`);
+      else if (a === b) announce("Tie game", `${a} each`);
+      else announce(`${playerName(a > b ? 0 : 1)} wins`, `${Math.max(a, b)}–${Math.min(a, b)}`);
+      playSound("strike");
       setPhase("over");
     } else {
-      callout(turn === me ? result : `${result} · ${playerName(turn)} is up`, shot);
+      const up = turn !== me ? `${playerName(turn)} is up` : undefined;
+      if (cleared) {
+        announce(result, up);
+        playSound("strike", before.standing === 10 ? 1 : 0.6);
+      } else {
+        callout(result, shot);
+        if (up) {
+          announce(`${playerName(turn)}’s turn`);
+          playSound("turn");
+        }
+      }
       if (turn !== me || after.standing === 10) bowl.standing.fill(true);
       else bowl.standing.forEach((up, i) => (bowl.standing[i] = up && !fallen(i)));
       if (turn !== me) giveTurn(turn);

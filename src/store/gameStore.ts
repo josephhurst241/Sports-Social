@@ -82,9 +82,11 @@ interface GameState {
   glassStyle: "classic" | "liquid";
   /** Short message after a point, roll or stroke, with when it was set. */
   callout: { text: string; at: number; kind?: Feedback["kind"] } | null;
+  /** Headline moments waiting for their big card (GameStateOverlay), first is showing: whose turn or serve, a strike, a win. */
+  announcements: Announcement[];
   /** The latest make or miss, where it happened (world, m): the scene ripples there (Feedback.tsx). */
   feedback: Feedback | null;
-  /** Sound effects (the logo's chime) on or off: the laptop's Settings (remembered in localStorage). */
+  /** Sound effects (the logo's chime, lib/audio/audioManager.ts) on or off: the laptop's Settings (remembered in localStorage). */
   sound: boolean;
 
   // Hub
@@ -140,6 +142,7 @@ export const useGameStore = create<GameState>()(() => ({
   introGlide: false,
   glassStyle: "classic",
   callout: null,
+  announcements: [],
   feedback: null,
   sound: true,
   hovered: [null, null],
@@ -210,6 +213,25 @@ export const useSplit = () => useGameStore((s) => s.scene === "pingpong");
 
 /** playerName as a React hook, so labels update when a player signs in. */
 export const usePlayerName = (slot: PlayerSlot) => useGameStore((s) => s.players[slot].account?.name ?? PLAYER_NAMES[slot]);
+
+/** A headline moment, as a big card in the middle of the laptop: a few words, and an optional line under them. */
+export interface Announcement {
+  text: string;
+  detail?: string;
+  at: number;
+}
+
+/**
+ * Queues a big card for a headline moment (whose turn or serve, a strike, a
+ * win). Rarer than callouts: routine results stay in the callout, and what a
+ * card says is not called out again. At most two wait; a third replaces the
+ * last, so a burst of events never backs up behind play.
+ */
+export function announce(text: string, detail?: string) {
+  const queue = useGameStore.getState().announcements;
+  const next = { text, detail, at: performance.now() };
+  useGameStore.setState({ announcements: queue.length >= 2 ? [queue[0], next] : [...queue, next] });
+}
 
 /** A short message after a point, roll or stroke; a make or miss gives it a little pop or shake. */
 export function callout(text: string, kind?: Feedback["kind"]) {

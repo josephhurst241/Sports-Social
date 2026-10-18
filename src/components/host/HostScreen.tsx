@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import QRCode from "qrcode";
 import Logo from "@/components/brand/Logo";
 import Splash from "@/components/brand/Splash";
+import GameStateOverlay from "@/components/host/GameStateOverlay";
 import { exitToHub } from "@/lib/game/scenes";
 import { SCENE_INKS, themeVars } from "@/lib/game/theme";
 import { scorecard, totalScore } from "@/lib/games/bowling";
@@ -130,10 +131,19 @@ function Handshake({ code, url, status, error }: { code: string | null; url: str
   );
 }
 
+/**
+ * The room code once someone has joined, small in the corner. Hover (or tab
+ * to) it and it springs to 1.5x from its corner, so a second player can scan
+ * the QR or read the code from the couch.
+ */
 function RoomBadge({ code, url }: { code: string; url: string | null }) {
   const svg = useQrSvg(url);
   return (
-    <div className="panel flex items-center gap-4 rounded-3xl p-2.5 pr-5">
+    <div
+      tabIndex={0}
+      aria-label={`Room code ${code}`}
+      className="panel pointer-events-auto relative flex origin-top-right items-center gap-4 rounded-3xl p-2.5 pr-5 outline-none transition-transform duration-560 ease-spring hover:z-10 hover:scale-150 focus-visible:z-10 focus-visible:scale-150 motion-reduce:transition-none"
+    >
       <QR svg={svg} size="h-14 w-14 rounded-xl p-1.5" />
       <div>
         <div className="text-[12px] font-semibold text-accent-ink">Room</div>
@@ -496,6 +506,7 @@ export default function HostScreen({ lanIp }: { lanIp: string | null }) {
         <Stage />
       </div>
       {split && <SplitOverlay />}
+      <GameStateOverlay />
 
       <header className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between gap-6 p-8">
         {/* The brand, on a panel like all text over the scene; the handshake card carries it while that is up */}

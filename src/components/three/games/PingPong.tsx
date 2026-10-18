@@ -25,6 +25,7 @@ import {
   solveArc,
 } from "@/lib/games/pingpong";
 import type { PlayerSlot } from "@/lib/net/protocol";
+import { playSound } from "@/lib/audio/audioManager";
 import { useGameStore } from "@/store/gameStore";
 import { Glass } from "../Glass";
 import { PHYSICS_STEP } from "../useKinematicFollow";
@@ -179,6 +180,7 @@ export default function PingPong() {
     rb.setAngvel({ x: 0, y: 0, z: 0 }, true);
     s.stillSince = 0;
     setPhase("play");
+    playSound("serve");
   }
 
   function end(winner: PlayerSlot, reason: string) {
