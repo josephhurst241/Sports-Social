@@ -1,6 +1,14 @@
-# Handoff (2026-10-18)
+# Handoff (2026-10-18, second session)
 
 For the next Claude Code session. Read `CLAUDE.md` first: it holds the architecture and the conventions that bite. This file covers where the work stopped and what is left.
+
+## What the second session (on a Mac) added
+
+- **Swing direction fix** (bowling, golf): with the screen toward the laptop, forward swings played backward. A pendulum recenter now keeps whichever phone face is nearer the compass zero the phone already has; golf takes a fresh zero from the screen (its putter grip faces the laptop); calibration turns the frame around after two backward swings (`swingDirection`, golf's stricter `puttDirection`). Never fix this by negating an axis. See "Natural grip" and "Working face" in `CLAUDE.md`.
+- **Sound effects** (`src/lib/audio/audioManager.ts`, synthesized, no files) and **announcement cards** (`announce()`, `GameStateOverlay`) for headline moments; the room badge springs to 1.5x on hover. No Framer Motion (CSS `ease-spring`).
+- **Glass intensity** Off / Mild / Med / High (`GLASS_LEVELS`, the control at the bottom of the laptop), switching with no shader compiles (`GlassPipeline`). **Liquid** is now the default look: clear, light, soft rims, a ripple at High. Glass shapes are rounded (`shapes.ts`).
+- `scripts/check.mjs` updated for Buttons/Motion living in Settings and for turns (26 checks pass, dev and production build).
+- `SETUP.md` has **Deploying on Vercel**; the app is meant to be deployed there.
 
 ## Ground rules from the user (still in force)
 
@@ -14,8 +22,8 @@ For the next Claude Code session. Read `CLAUDE.md` first: it holds the architect
 - `npm run dev` fails on Windows (spawn npx ENOENT). Run `node scripts/dev.mjs` once to make the cert, then from Git Bash:
   `export PATH="/c/Program Files/nodejs:$PATH" && npx next dev -H 0.0.0.0 -p 3000 --experimental-https --experimental-https-key .cert/key.pem --experimental-https-cert .cert/cert.pem`
 - The repo is on OneDrive, and its file watcher misses edits. Restart the dev server after big changes.
-- Checks: `npm test` (Node's test runner, 30 tests), `npx tsc --noEmit`, `npx eslint .`, `npx next build`. All passed at handoff.
-- Nothing has been tested on a real phone this round. All motion checks used synthetic telemetry.
+- Checks: `npm test` (Node's test runner, 36 tests), `npx tsc --noEmit`, `npx eslint .`, `npx next build`, `node scripts/check.mjs`. All passed at handoff.
+- Still nothing tested on a real phone. All motion checks used synthetic telemetry (now including Buttons-then-Motion and screen-toward-laptop golf).
 
 ## The task list being worked (from the user)
 
@@ -47,8 +55,8 @@ For the next Claude Code session. Read `CLAUDE.md` first: it holds the architect
 2. Settings re-trigger of calibration. **Done** (phone `Settings.tsx`, laptop `SettingsPanel` in `HostScreen.tsx`).
 3. Faint 3D backdrop shapes in the hub. **Done** (`Backdrop` in `Hub.tsx`).
 
-**Phase 4: optimization pass, then a final cleanup pass.** **Not started.**
-- **Last measurements:** hub about 184 fps; split ping pong about 90 fps. The split now renders twice every ping pong frame, the CPU match included, so profile that first.
+**Phase 4: optimization pass, then a final cleanup pass.** **Started** (glass intensity levels).
+- **Last measurements** (MacBook, 1.5x DPR, uncapped, glass Med): hub about 47-50 fps, split ping pong about 67-76, bowling about 112, golf about 100-116. Off is 200+ everywhere; Mild holds 60 in the hub. The hub at Med is the one scene under 60: profile its mirror floor (`MeshReflectorMaterial`) and the transmission pass first. (The earlier 184 fps hub figure was at 1x DPR.)
 - **Cleanup:** remove the stale "From the hub" style wording; confirm `README.md`/`SETUP.md` match per-game calibration; delete the scratch-only debug paths if unused.
 
 ## Guardrail from the user

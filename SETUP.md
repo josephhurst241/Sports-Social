@@ -77,22 +77,28 @@ the certificate for the new address).
 
 ### Settings and keys
 
-**Laptop:** the gear (top right) has sound effects (on/off), the glass look,
-and **Calibrate** for each Motion player. Keys: **R** recenter phones ·
-**Esc** back to the hub · **G** glass look.
+**Laptop:** the gear (top right) has sound effects (on/off), the glass look
+(Liquid or Classic), and **Calibrate** for each Motion player. The **Glass**
+control at the bottom sets how much glass is rendered: **Off** (fastest, for
+slower machines), **Mild** (holds 60 fps on a MacBook), **Med** (the default)
+and **High** (adds a slow ripple). Keys: **R** recenter phones · **Esc** back
+to the hub · **G** glass look. Sound effects start after the first click or
+key press on the laptop page (browsers block sound until then).
 
 **Phone:** the gear (top right) has Buttons or Motion, **Calibrate motion**,
 **Aim** and **Swing** sensitivity (0.5x to 2x, Motion only; remembered on
 the phone), Recenter and Haptics.
 
-**Calibration:** the first time a phone uses Motion, it walks through hold
-still, turn left, turn right and three swings. Each step waits until you tap
-**Ready** on the phone, then gives you time (2 s, 5 s, 5 s; up to 30 s for the
-swings). **Skip** is in the phone's top right. It tunes aim and swing power to
-how that player moves. Run it again from either Settings, in the hub.
+**Calibration:** the first time a Motion player enters each game, that game
+shows how to hold the phone, then: hold still, and the game's action (a putt,
+a bowl, a forehand) a few times until three agree. Each step waits until you
+tap **Ready** on the phone; **Skip** is in the phone's top right. It tunes aim
+and swing power to how that player moves. Run it again from either Settings,
+inside the game.
 
-**Grip:** in bowling and golf, hold the phone however is comfortable. The
-game takes your rest pose as you line up each shot (and when you recenter).
+**Grip:** in golf, hold the phone like a putter grip with the screen toward
+the laptop. In bowling, however is comfortable. The game takes your rest pose
+as you line up each shot (and when you recenter).
 
 **Ping pong with two people** shows a split screen, one half per player.
 
@@ -205,15 +211,28 @@ Supabase CLI instead: `supabase link`, then `supabase db push`.)
   end scores, and allows at most 60 saves an hour), but a determined player
   could still submit made-up games. Fine among friends.
 
-### Deploying to a real domain later
+### Deploying on Vercel
 
-1. Set `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
-   in the host's environment **before building** (they are built into the
-   page).
-2. In Supabase, set the **Site URL** to `https://yourdomain` and add
-   `https://yourdomain/**` to the redirect URLs.
-3. A real certificate on the domain replaces the self-signed one, so no
-   warnings on phones.
+1. In Vercel, **Add New → Project** and import the GitHub repo. It detects
+   Next.js; keep the default build settings (`next build`).
+2. Accounts (optional): add `NEXT_PUBLIC_SUPABASE_URL` and
+   `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` under **Settings → Environment
+   Variables** *before* deploying (they are built into the page; redeploy
+   after changing them). Without them the game deploys fine, everyone a guest.
+3. In Supabase, set the **Site URL** to `https://<your-app>.vercel.app` and
+   add `https://<your-app>.vercel.app/**` to the redirect URLs (and the same
+   for any custom domain). For Google, the redirect URI in Google Cloud stays
+   the Supabase callback (3.6), nothing changes there.
+4. Open the Vercel address on the laptop. The QR code points phones at the
+   same address, over Vercel's real HTTPS certificate, so Motion mode works
+   with no certificate warning and the phone needn't be on the laptop's
+   Wi-Fi.
+
+Good to know: phones and laptop meet through PeerJS's free public broker and
+relay servers (both devices need internet). On the same Wi-Fi the controller
+connects directly; across networks (a phone on mobile data) it may go through
+the relay, which adds some delay. The laptop does all the rendering, so the
+glass and frame-rate notes above are about the laptop, not Vercel.
 
 ---
 
