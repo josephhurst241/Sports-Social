@@ -96,9 +96,9 @@ tap **Ready** on the phone; **Skip** is in the phone's top right. It tunes aim
 and swing power to how that player moves. Run it again from either Settings,
 inside the game.
 
-**Grip:** in golf, hold the phone like a putter grip with the screen toward
-the laptop. In bowling, however is comfortable. The game takes your rest pose
-as you line up each shot (and when you recenter).
+**Grip:** in bowling and golf, hold the phone with the screen toward the
+laptop; swinging toward the screen swings forward. The game takes your rest
+pose as you pick up the ball or address the putt (and when you recenter).
 
 **Ping pong with two people** shows a split screen, one half per player.
 

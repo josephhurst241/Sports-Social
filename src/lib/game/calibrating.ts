@@ -2,7 +2,6 @@ import { Vector3 } from "three";
 import type { PlayerSlot } from "@/lib/net/protocol";
 import { requestRecenter, useGameStore } from "@/store/gameStore";
 import {
-  BACKWARD_REPS,
   DONE_SECONDS,
   HOLD_SECONDS,
   REPS_MIN,
@@ -10,8 +9,6 @@ import {
   gameCal,
   percentile,
   repsDone,
-  puttDirection,
-  swingDirection,
   type CalGame,
   type CalStep,
   type CalView,
@@ -37,8 +34,6 @@ const ACTION_TIMEOUT = 60;
 const SWING_END = 0.3;
 /** Bowling and golf: the pace is the fastest forward speed this close before letting go, ms (as in the games). */
 const PACE_MS = 450;
-/** How much of a held swing is kept to tell which way it went: enough to reach back to the backswing. */
-const SWING_MS = 2000;
 
 interface Measure {
   game: CalGame;
@@ -57,8 +52,6 @@ interface Measure {
   headAt: number;
   /** Ping pong: the fastest the current swing has been (0 when not swinging). */
   swingPeak: number;
-  /** Bowling and golf: swings in a row that went through backward (see swingDirection). */
-  backward: number;
   /** The calibration this run replaces, restored if it is skipped. */
   before: GameCal | undefined;
 }
@@ -74,7 +67,6 @@ const blank = (game: CalGame): Measure => ({
   head: new Vector3(),
   headAt: 0,
   swingPeak: 0,
-  backward: 0,
   before: undefined,
 });
 const runs: [Measure, Measure] = [blank("golf"), blank("golf")];
@@ -145,7 +137,6 @@ function finish(slot: PlayerSlot) {
 function rep(slot: PlayerSlot, peak: number, aim: number) {
   const m = runs[slot];
   if (peak < REP_MIN[m.game]) return;
-  m.backward = 0;
   m.peaks.push(peak);
   m.aims.push(aim);
   if (repsDone(m.peaks)) finish(slot);
@@ -153,23 +144,6 @@ function rep(slot: PlayerSlot, peak: number, aim: number) {
     const view = useGameStore.getState().calibration[slot]!;
     setView(slot, { ...view, reps: m.peaks.length, needed: Math.max(1, REPS_MIN - m.peaks.length) });
   }
-}
-
-/**
- * A swing that went through backward. Twice in a row means the player holds
- * the phone with its other face toward the laptop than the compass zero
- * assumed: the avatar turns its world around (rig.aboutFaceSeq) and the reps
- * start over, since the ones so far measured the backswing.
- */
-function backwardRep(slot: PlayerSlot) {
-  const m = runs[slot];
-  if (++m.backward < BACKWARD_REPS) return;
-  m.backward = 0;
-  m.peaks = [];
-  m.aims = [];
-  rigs[slot].aboutFaceSeq++;
-  const view = useGameStore.getState().calibration[slot]!;
-  setView(slot, { ...view, reps: 0, needed: REPS_MIN });
 }
 
 /** One frame of every running calibration. Called from the scene's frame loop. */
@@ -232,11 +206,9 @@ export function stepCalibration(now: number) {
     const grip = r.grip;
     if (grip) {
       m.history.push({ t: now, v });
-      while (m.history.length && now - m.history[0].t > SWING_MS) m.history.shift();
+      while (m.history.length && now - m.history[0].t > PACE_MS) m.history.shift();
     } else if (m.prevGrip) {
-      const direction = m.game === "golf" ? puttDirection : swingDirection;
-      if (direction(m.history.map((h) => h.v), REP_MIN[m.game]) < 0) backwardRep(slot);
-      else rep(slot, m.history.reduce((a, h) => (now - h.t <= PACE_MS ? Math.max(a, h.v) : a), 0), r.heading - m.baseline);
+      rep(slot, m.history.reduce((a, h) => Math.max(a, h.v), 0), r.heading - m.baseline);
       m.history.length = 0;
     }
     m.prevGrip = grip;

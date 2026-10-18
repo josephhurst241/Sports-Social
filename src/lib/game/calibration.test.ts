@@ -9,9 +9,7 @@ import {
   cleanSensitivity,
   gameCal,
   percentile,
-  puttDirection,
   repsDone,
-  swingDirection,
 } from "./calibration.ts";
 
 // Per-game motion calibration. Run with `npm test`.
@@ -63,35 +61,4 @@ test("a sensitivity from a phone is kept within 0.5x to 2x, and junk is ignored"
   assert.equal(cleanSensitivity(0.1), SENSITIVITY_LIMITS[0]);
   assert.equal(cleanSensitivity("2"), 1);
   assert.equal(cleanSensitivity(Number.NaN), 1);
-});
-
-// A held swing's speeds along forward (m/s), oldest first: back, then through.
-const putt = [0, -0.3, -0.5, -0.3, 0, 0.4, 0.6, 0.5, 0.2];
-
-test("a swing back and through goes forward", () => {
-  assert.equal(swingDirection(putt, 0.25), 1);
-});
-
-test("the same swing in a turned-around frame goes backward", () => {
-  assert.equal(swingDirection(putt.map((v) => -v), 0.25), -1);
-});
-
-test("the last strong motion decides, even when the backswing is faster", () => {
-  assert.equal(swingDirection([0, -0.8, -0.4, 0, 0.5, 0.45, 0.1], 0.25), 1);
-});
-
-test("a still phone tells nothing", () => {
-  assert.equal(swingDirection([0.05, -0.1, 0.08], 0.25), 0);
-  assert.equal(swingDirection([], 0.25), 0);
-});
-
-test("a putt held through the putter swinging back still goes forward", () => {
-  // back, through, then (still holding) back toward rest: the last strong motion is backward
-  const held = [0, -0.3, -0.4, 0, 0.6, 0.8, 0.4, -0.2, -0.5, -0.45, -0.1];
-  assert.equal(swingDirection(held, 0.25), -1);
-  assert.equal(puttDirection(held, 0.25), 1);
-});
-
-test("a putt in a turned-around frame still reads backward", () => {
-  assert.equal(puttDirection(putt.map((v) => -v), 0.25), -1);
 });

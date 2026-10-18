@@ -71,12 +71,6 @@ export interface Rig {
    * aimed straight". The scenes bump it when the player lines up a shot.
    */
   neutralSeq: number;
-  /**
-   * Bumped when calibration finds the player's forward swings playing
-   * backward: the phone's compass zero was taken from the face pointing away
-   * from the laptop, so the avatar turns its world frame half a turn.
-   */
-  aboutFaceSeq: number;
   /** This player's motion calibration per game (calibration.ts): swing scale and aim zero; none until measured. */
   games: Partial<Record<CalGame, GameCal>>;
   /** Their own Aim and Swing sensitivity from the phone's Settings, multiplied in on top (1 = as calibrated). */
@@ -110,7 +104,6 @@ const makeRig = (): Rig => ({
   games: {},
   sens: { ...NEUTRAL_SENSITIVITY },
   neutralSeq: 0,
-  aboutFaceSeq: 0,
 });
 
 export const rigs: [Rig, Rig] = [makeRig(), makeRig()];

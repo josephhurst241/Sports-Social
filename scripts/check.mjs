@@ -299,7 +299,9 @@ try {
   await host.evaluate(`(() => { const s = window.__glass.store; const p = [...s.getState().players]; p[0] = { ...p[0], connected: true }; s.setState({ players: p }); })()`);
   await host.evaluate(DRIVER);
   // frames: [quaternion [x,y,z,w], grip, duration ms]; rotations about X (pitch) or Y (heading)
-  const pitch = (a) => [Math.sin(a / 2), 0, 0, Math.cos(a / 2)];
+  // Bowling and golf hold the phone upright, screen toward the laptop (a half
+  // turn from the hub's pose); a swing tips it about the lateral axis.
+  const pitch = (a) => [0, Math.cos(a / 2), Math.sin(a / 2), 0];
   const yaw = (a) => [0, Math.sin(a / 2), 0, Math.cos(a / 2)];
   const sweep = (from, to, ms, grip, rot) =>
     Array.from({ length: Math.round(ms / 16) }, (_, i) => [rot(from + ((to - from) * i) / Math.max(1, Math.round(ms / 16) - 1)), grip, 16]);

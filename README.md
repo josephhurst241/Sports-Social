@@ -22,7 +22,7 @@ PORT=3005 npm run dev   # either command, on another port
 2. Scan the QR with your phone (or open `https://<laptop IP>:3000/play` and type the code).
    Accept the self-signed certificate warning once.
 3. Tap **Start** and allow motion access.
-4. In the hub, hold the phone upright, screen toward you: that is the rest pose. Tip and turn it and the hand follows. (In bowling any comfortable grip works; in golf, hold it like a putter, screen toward the laptop.)
+4. In the hub, hold the phone upright, screen toward you: that is the rest pose. Tip and turn it and the hand follows. (In bowling and golf, hold it screen toward the laptop: a swing toward the screen goes forward.)
 5. Point the top of the phone at the laptop like a remote: a beam comes out of the hand. Aim it at an island, tap the phone to select it, tap again to play.
 
 ### Buttons or Motion
@@ -42,7 +42,7 @@ the sensors would, so the games cannot tell the difference.
 | Game | Hold the phone | Play |
 |---|---|---|
 | **Ping Pong** (vs the CPU, or a second phone) | like a paddle, screen facing the table | tap to serve; swing (sweep the screen from facing right to facing left) to hit. You slide to the ball automatically. First to 11. |
-| **Bowling** (10 frames) | however is comfortable (your rest pose is taken as you line up) | hold the screen to pick up the ball, swing underhand, let go. Swing speed is pace; turn the phone to angle the shot. |
+| **Bowling** (10 frames) | arm hanging, screen toward the laptop (your rest pose is taken as you pick up the ball) | hold the screen to pick up the ball, swing underhand, let go. Swing speed is pace; turn the phone to angle the shot. |
 | **Golf** (3 holes, par 7) | like a putter grip, screen toward the laptop | hold the screen, swing the putter back and through, let go. Swing speed is power; turn the phone to aim (the line on the green). |
 
 In any game: **three-finger tap** on the phone (or **Esc** on the laptop) goes back to the hub; **two-finger tap** (or **R**) recenters.

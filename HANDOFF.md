@@ -4,7 +4,7 @@ For the next Claude Code session. Read `CLAUDE.md` first: it holds the architect
 
 ## What the second session (on a Mac) added
 
-- **Swing direction fix** (bowling, golf): with the screen toward the laptop, forward swings played backward. A pendulum recenter now keeps whichever phone face is nearer the compass zero the phone already has; golf takes a fresh zero from the screen (its putter grip faces the laptop); calibration turns the frame around after two backward swings (`swingDirection`, golf's stricter `puttDirection`). Never fix this by negating an axis. See "Natural grip" and "Working face" in `CLAUDE.md`.
+- **Swing direction** (bowling, golf): the phone is held screen toward the laptop, and forward is wherever the screen faced at rest (taken on every grip press), independent of the compass zero. Earlier attempts that reasoned from the compass zero kept flipping on real phones. See "Natural grip" in `CLAUDE.md`.
 - **Sound effects** (`src/lib/audio/audioManager.ts`, synthesized, no files) and **announcement cards** (`announce()`, `GameStateOverlay`) for headline moments; the room badge springs to 1.5x on hover. No Framer Motion (CSS `ease-spring`).
 - **Glass intensity** Off / Mild / Med / High (`GLASS_LEVELS`, the control at the bottom of the laptop), switching with no shader compiles (`GlassPipeline`). **Liquid** is now the default look: clear, light, soft rims, a ripple at High. Glass shapes are rounded (`shapes.ts`).
 - `scripts/check.mjs` updated for Buttons/Motion living in Settings and for turns (26 checks pass, dev and production build).
@@ -22,7 +22,7 @@ For the next Claude Code session. Read `CLAUDE.md` first: it holds the architect
 - `npm run dev` fails on Windows (spawn npx ENOENT). Run `node scripts/dev.mjs` once to make the cert, then from Git Bash:
   `export PATH="/c/Program Files/nodejs:$PATH" && npx next dev -H 0.0.0.0 -p 3000 --experimental-https --experimental-https-key .cert/key.pem --experimental-https-cert .cert/cert.pem`
 - The repo is on OneDrive, and its file watcher misses edits. Restart the dev server after big changes.
-- Checks: `npm test` (Node's test runner, 36 tests), `npx tsc --noEmit`, `npx eslint .`, `npx next build`, `node scripts/check.mjs`. All passed at handoff.
+- Checks: `npm test` (Node's test runner, 30 tests), `npx tsc --noEmit`, `npx eslint .`, `npx next build`, `node scripts/check.mjs`. All passed at handoff.
 - Still nothing tested on a real phone. All motion checks used synthetic telemetry (now including Buttons-then-Motion and screen-toward-laptop golf).
 
 ## The task list being worked (from the user)

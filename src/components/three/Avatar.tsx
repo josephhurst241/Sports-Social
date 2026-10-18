@@ -126,7 +126,6 @@ export default function Avatar({ slot, tint = PLAYER_COLORS[slot] }: { slot: Pla
     /** The compass heading of the laptop, once this phone has one (kept while the phone stays connected). */
     zero: 0,
     zeroed: false,
-    aboutFaceSeq: rig.aboutFaceSeq,
     placed: 0,
     netQ: new Quaternion(),
     handQ: new Quaternion(),
@@ -148,6 +147,10 @@ export default function Avatar({ slot, tint = PLAYER_COLORS[slot] }: { slot: Pla
     neutralPlaced: 0,
     neutralRecenter: -1,
     neutralInv: new Quaternion(),
+    /** The swing arm's frame: turns where the screen faced at rest onto the avatar's forward. */
+    restQ: new Quaternion(),
+    restInv: new Quaternion(),
+    prevGrip: false,
     relQ: new Quaternion(),
     dispQ: new Quaternion(),
     fwd: new Vector3(),
@@ -180,17 +183,6 @@ export default function Avatar({ slot, tint = PLAYER_COLORS[slot] }: { slot: Pla
     // --- Phone orientation -> world orientation
     if (live) {
       s.netQ.set(p[P.QX], p[P.QY], p[P.QZ], p[P.QW]).normalize();
-      if (rig.aboutFaceSeq !== s.aboutFaceSeq) {
-        // Calibration found the zero facing away from the laptop: turn the world
-        // half a turn, and the rest pose and smoothed hand with it, so nothing sweeps.
-        s.aboutFaceSeq = rig.aboutFaceSeq;
-        if (s.zeroed && tel.source !== "local" && !tel.virtual) {
-          s.zero = wrapPi(s.zero + Math.PI);
-          s.calQ.setFromAxisAngle(UP, -s.zero);
-          s.neutral.premultiply(SCREEN_FORWARD);
-          s.handQ.premultiply(SCREEN_FORWARD);
-        }
-      }
       // Zero the compass heading on the first packet and on every recenter, so
       // the phone's working face pointing at the laptop faces the way the
       // avatar does. The working face is the back of the phone, except in
@@ -239,18 +231,35 @@ export default function Avatar({ slot, tint = PLAYER_COLORS[slot] }: { slot: Pla
     // The swing arm's rest pose: captured when the scene lines the player up
     // (placed, neutralSeq) or on a recenter, from however the phone is held
     // then. Buttons and the CPU send an upright rest, as before.
+    //
+    // Forward is wherever the screen faced at rest: in bowling and golf the
+    // screen faces the laptop, so a swing toward the screen is a swing
+    // forward, whatever the compass zero says (restQ turns that direction
+    // onto the avatar's facing). Held flat, the phone's top stands in. It is
+    // taken again on every press (picking up the ball, addressing the putt):
+    // the player is holding still then, the way they will swing.
     const pendulum = rig.arm === "pendulum";
-    if (pendulum && live && (rig.neutralSeq !== s.neutralSeq || rig.placed !== s.neutralPlaced || tel.recenterSeq !== s.neutralRecenter)) {
+    const pressed = rig.grip && !s.prevGrip;
+    s.prevGrip = rig.grip;
+    if (pendulum && live && (pressed || rig.neutralSeq !== s.neutralSeq || rig.placed !== s.neutralPlaced || tel.recenterSeq !== s.neutralRecenter)) {
       s.neutralSeq = rig.neutralSeq;
       s.neutralPlaced = rig.placed;
       s.neutralRecenter = tel.recenterSeq;
-      s.neutral.copy(tel.source === "local" || tel.virtual ? s.faceQ : s.netQ);
+      const virtual = tel.source === "local" || tel.virtual;
+      s.neutral.copy(virtual ? s.faceQ : s.netQ);
+      if (virtual) s.restQ.identity();
+      else {
+        let d = s.v.set(0, 0, 1).applyQuaternion(s.neutral);
+        if (Math.hypot(d.x, d.z) < 0.35) d = s.v.set(0, 1, 0).applyQuaternion(s.neutral);
+        s.restQ.setFromAxisAngle(UP, wrapPi(facing - Math.atan2(-d.x, -d.z)));
+      }
+      s.restInv.copy(s.restQ).invert();
       s.hasNeutral = true;
     }
     if (pendulum) {
       // How the phone has turned since rest, in the world: it moves the arm from hanging straight down.
       s.neutralInv.copy(s.hasNeutral ? s.neutral : s.faceQ).invert();
-      s.relQ.copy(s.handQ).multiply(s.neutralInv);
+      s.relQ.copy(s.handQ).multiply(s.neutralInv).premultiply(s.restQ).multiply(s.restInv);
       s.dispQ.copy(s.relQ).multiply(s.faceQ);
     }
 
@@ -270,6 +279,7 @@ export default function Avatar({ slot, tint = PLAYER_COLORS[slot] }: { slot: Pla
     // Leaky integral of linear acceleration (phone frame -> world frame first)
     if (live) s.accel.set(p[P.AX], p[P.AY], p[P.AZ]).applyQuaternion(s.handQ);
     else s.accel.set(0, 0, 0);
+    if (pendulum) s.accel.applyQuaternion(s.restQ); // into the swing arm's frame too
     s.accelVel.addScaledVector(s.accel, dt).multiplyScalar(Math.exp(-dt * ACCEL_VEL_DECAY));
     s.accelOff.addScaledVector(s.accelVel, dt).multiplyScalar(Math.exp(-dt * ACCEL_POS_DECAY));
     s.accelOff.clampLength(0, ACCEL_MAX);
