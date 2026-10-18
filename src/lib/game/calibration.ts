@@ -95,6 +95,38 @@ export function repsDone(peaks: number[]) {
   return mean > 0 && sd / mean <= CONSISTENT;
 }
 
+/** Backward swings in a row that mean the phone's compass zero faces away from the laptop. */
+export const BACKWARD_REPS = 2;
+
+/**
+ * Which way a held swing (bowling, golf) went through: +1 forward, -1
+ * backward, 0 too small to tell (fastest under `min`, m/s). The through-swing
+ * always comes after the backswing, so it is the sign of the last sample at
+ * least half as fast as the fastest either way, not of the faster one: a
+ * gentle putt's backswing is often as fast as its stroke. -1 means the
+ * world frame is turned around (the compass zero was taken from the phone's
+ * other face), so forward swings play backward.
+ */
+export function swingDirection(speeds: number[], min: number) {
+  const top = speeds.reduce((a, v) => Math.max(a, Math.abs(v)), 0);
+  if (top < min) return 0;
+  for (let i = speeds.length - 1; i >= 0; i--) if (Math.abs(speeds[i]) >= top / 2) return Math.sign(speeds[i]);
+  return 0;
+}
+
+/**
+ * swingDirection for golf, where the grip is often held past the stroke: the
+ * putter swinging back toward rest, a second practice stroke, or the hand
+ * easing back after the push can be the last strong motion. Backward only
+ * when the last strong motion and the fastest one both are.
+ */
+export function puttDirection(speeds: number[], min: number) {
+  const last = swingDirection(speeds, min);
+  if (last >= 0) return last;
+  const fastest = speeds.reduce((a, v) => (Math.abs(v) > Math.abs(a) ? v : a), 0);
+  return fastest < 0 ? -1 : 1;
+}
+
 /**
  * The calibration from the reps: the median of the last three swings sets
  * the swing scale, and the median of where they pointed at release (radians
@@ -111,7 +143,7 @@ export function gameCal(game: CalGame, peaks: number[], releaseAims: number[]): 
 /** What each game's calibration asks, for the phone and the laptop. */
 export const CAL_TEXT: Record<CalGame, Record<CalStep, { title: string; hint: string }>> = {
   golf: {
-    hold: { title: "Hold it like a putter", hint: "Phone upright in your hand, screen toward you, arm relaxed. Hold still." },
+    hold: { title: "Hold it like a putter", hint: "Phone upright in your hands, screen toward the laptop, arms relaxed. Hold still." },
     action: { title: "Putt, three times", hint: "Hold the screen, swing back and through like a putt, let go." },
     done: { title: "All set", hint: "Your putting is tuned to you." },
   },

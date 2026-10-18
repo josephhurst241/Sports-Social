@@ -123,6 +123,10 @@ export default function Avatar({ slot, tint = PLAYER_COLORS[slot] }: { slot: Pla
     calQ: new Quaternion(),
     calibrated: false,
     seenRecenter: 0,
+    /** The compass heading of the laptop, once this phone has one (kept while the phone stays connected). */
+    zero: 0,
+    zeroed: false,
+    aboutFaceSeq: rig.aboutFaceSeq,
     placed: 0,
     netQ: new Quaternion(),
     handQ: new Quaternion(),
@@ -166,6 +170,9 @@ export default function Avatar({ slot, tint = PLAYER_COLORS[slot] }: { slot: Pla
     // paddle, held screen-forward like a real bat; its back (-Z) otherwise,
     // held screen toward you.
     const faceAxis = rig.arm === "paddle" ? 1 : -1;
+    // The face taken to point at the laptop when a compass zero is taken from
+    // scratch: golf's putter grip holds the screen toward the laptop too.
+    const zeroAxis = rig.arm === "paddle" || scene === "golf" ? 1 : faceAxis;
     const live = tel.receivedAt > 0 && performance.now() - tel.receivedAt < STALE_MS;
     rig.live = live;
     rig.grip = live && p[P.GRIP] > 0.5;
@@ -173,6 +180,17 @@ export default function Avatar({ slot, tint = PLAYER_COLORS[slot] }: { slot: Pla
     // --- Phone orientation -> world orientation
     if (live) {
       s.netQ.set(p[P.QX], p[P.QY], p[P.QZ], p[P.QW]).normalize();
+      if (rig.aboutFaceSeq !== s.aboutFaceSeq) {
+        // Calibration found the zero facing away from the laptop: turn the world
+        // half a turn, and the rest pose and smoothed hand with it, so nothing sweeps.
+        s.aboutFaceSeq = rig.aboutFaceSeq;
+        if (s.zeroed && tel.source !== "local" && !tel.virtual) {
+          s.zero = wrapPi(s.zero + Math.PI);
+          s.calQ.setFromAxisAngle(UP, -s.zero);
+          s.neutral.premultiply(SCREEN_FORWARD);
+          s.handQ.premultiply(SCREEN_FORWARD);
+        }
+      }
       // Zero the compass heading on the first packet and on every recenter, so
       // the phone's working face pointing at the laptop faces the way the
       // avatar does. The working face is the back of the phone, except in
@@ -182,9 +200,18 @@ export default function Avatar({ slot, tint = PLAYER_COLORS[slot] }: { slot: Pla
       } else if (!s.calibrated || tel.recenterSeq !== s.seenRecenter) {
         s.seenRecenter = tel.recenterSeq;
         s.calibrated = true;
-        let d = s.v.set(0, 0, faceAxis).applyQuaternion(s.netQ);
+        let d = s.v.set(0, 0, zeroAxis).applyQuaternion(s.netQ);
         if (Math.hypot(d.x, d.z) < 0.5) d = s.v.set(0, 1, 0).applyQuaternion(s.netQ); // lying flat: its top
-        s.calQ.setFromAxisAngle(UP, -Math.atan2(-d.x, -d.z));
+        let zero = Math.atan2(-d.x, -d.z);
+        // The swing arm takes any grip, screen toward the laptop or toward the
+        // player, so either face may be the one pointing at the laptop: keep
+        // whichever is nearer the zero this phone already has. A recenter then
+        // corrects drift without turning the player around (which would play
+        // every forward swing backward).
+        if (rig.arm === "pendulum" && s.zeroed && Math.abs(wrapPi(zero - s.zero)) > Math.PI / 2) zero = wrapPi(zero + Math.PI);
+        s.zero = zero;
+        s.zeroed = true;
+        s.calQ.setFromAxisAngle(UP, -zero);
       }
       s.netQ.premultiply(s.calQ).premultiply(s.faceQ);
       // The player's Aim sensitivity: scales how far turning the phone turns
@@ -194,11 +221,14 @@ export default function Avatar({ slot, tint = PLAYER_COLORS[slot] }: { slot: Pla
       if (turn !== 1) {
         let d = s.v.set(0, 0, faceAxis).applyQuaternion(s.netQ);
         if (Math.hypot(d.x, d.z) < 0.3) d = s.v.set(0, 1, 0).applyQuaternion(s.netQ);
-        const yaw = wrapPi(Math.atan2(-d.x, -d.z) - facing);
+        let yaw = wrapPi(Math.atan2(-d.x, -d.z) - facing);
+        // The swing arm's grip may have the back toward the player: scale from the face that points ahead.
+        if (rig.arm === "pendulum" && Math.abs(yaw) > Math.PI / 2) yaw = wrapPi(yaw + Math.PI);
         s.netQ.premultiply(s.yawQ.setFromAxisAngle(UP, yaw * (turn - 1)));
       }
     } else {
       s.calibrated = false;
+      if (tel.receivedAt === 0) s.zeroed = false; // the phone left: the next one has its own compass
       // Rest: phone upright with its working face forward.
       s.netQ.copy(s.faceQ);
       if (faceAxis > 0) s.netQ.multiply(SCREEN_FORWARD);
