@@ -80,6 +80,8 @@ interface GameState {
   introGlide: boolean;
   /** The glass look: the prototype's "classic" glass or the glossier "liquid" glass. G on the laptop switches it. */
   glassStyle: "classic" | "liquid";
+  /** How much glass the laptop renders, from opaque-ish stand-ins ("off", no transmission pass) to the fullest lensing; see GLASS_LEVELS. */
+  glassIntensity: GlassIntensity;
   /** Short message after a point, roll or stroke, with when it was set. */
   callout: { text: string; at: number; kind?: Feedback["kind"] } | null;
   /** Headline moments waiting for their big card (GameStateOverlay), first is showing: whose turn or serve, a strike, a win. */
@@ -140,7 +142,8 @@ export const useGameStore = create<GameState>()(() => ({
   scene: "hub",
   intro: true,
   introGlide: false,
-  glassStyle: "classic",
+  glassStyle: "liquid",
+  glassIntensity: "medium",
   callout: null,
   announcements: [],
   feedback: null,
@@ -213,6 +216,27 @@ export const useSplit = () => useGameStore((s) => s.scene === "pingpong");
 
 /** playerName as a React hook, so labels update when a player signs in. */
 export const usePlayerName = (slot: PlayerSlot) => useGameStore((s) => s.players[slot].account?.name ?? PLAYER_NAMES[slot]);
+
+export type GlassIntensity = "off" | "mild" | "medium" | "high";
+export const GLASS_INTENSITIES: GlassIntensity[] = ["off", "mild", "medium", "high"];
+
+/**
+ * What each glass intensity renders (Glass.tsx). "off" draws no glass at all:
+ * a tinted, glossy, see-through stand-in with no transmission, so three skips
+ * its transmission pass entirely. The others are MeshTransmissionMaterial on
+ * the shared buffer: lens thickness, dispersion, blur, index, refraction
+ * samples (baked into the shader: every level is compiled up front so
+ * switching never stalls), and the shared buffer's resolution as a share of
+ * the canvas (the shared sampler has no per-material resolution).
+ */
+// `ripple` gates the liquid look's costly touch (Glass.tsx): the moving
+// ripple, High only (about 6 ms a frame in split ping pong on its own).
+export const GLASS_LEVELS = {
+  off: { opacity: 0.8, roughness: 0.1 },
+  mild: { thickness: 0.1, chromaticAberration: 0, roughness: 0.05, ior: 1.4, samples: 2, buffer: 0.5, ripple: false },
+  medium: { thickness: 0.5, chromaticAberration: 0.02, roughness: 0.02, ior: 1.45, samples: 4, buffer: 1, ripple: false },
+  high: { thickness: 1.2, chromaticAberration: 0.06, roughness: 0.01, ior: 1.5, samples: 6, buffer: 1, ripple: true },
+} as const;
 
 /** A headline moment, as a big card in the middle of the laptop: a few words, and an optional line under them. */
 export interface Announcement {

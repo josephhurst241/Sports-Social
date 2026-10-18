@@ -15,6 +15,7 @@ import { announce, callout, feedback, nextTurn, playerName, useGameStore } from 
 import { PUTTER } from "../Avatar";
 import Floor from "../Floor";
 import { BackgroundGlass, Glass } from "../Glass";
+import { roundedBox } from "../shapes";
 
 // Mini golf: hold the phone screen, swing it like a putter, let go to strike.
 // The putter head's forward speed at release sets the power; where the back
@@ -95,8 +96,7 @@ function Green({ hole, flag }: { hole: number; flag: RefObject<Group | null> }) 
       ].map(([x, z, rw, rd], i) => (
         <group key={i}>
           <CuboidCollider args={[rw / 2, RAIL_H / 2, rd / 2]} position={[x, RAIL_H / 2, z]} restitution={0.55} friction={0.2} />
-          <mesh position={[x, RAIL_H / 2, z]} castShadow receiveShadow>
-            <boxGeometry args={[rw, RAIL_H, rd]} />
+          <mesh position={[x, RAIL_H / 2, z]} geometry={roundedBox(rw, RAIL_H, rd, 0.035)} castShadow receiveShadow>
             <BackgroundGlass tint="#eafff2" />
           </mesh>
         </group>
@@ -105,8 +105,7 @@ function Green({ hole, flag }: { hole: number; flag: RefObject<Group | null> }) 
       {h.blocks.map(([x, z, bw, bd], i) => (
         <group key={`b${i}`}>
           <CuboidCollider args={[bw / 2, 0.11, bd / 2]} position={[x, 0.11, z]} restitution={0.5} friction={0.2} />
-          <mesh position={[x, 0.11, z]} castShadow>
-            <boxGeometry args={[bw, 0.22, bd]} />
+          <mesh position={[x, 0.11, z]} geometry={roundedBox(bw, 0.22, bd, 0.06)} castShadow>
             <Glass tint="#a6e7ff" />
           </mesh>
         </group>
@@ -122,8 +121,7 @@ function Green({ hole, flag }: { hole: number; flag: RefObject<Group | null> }) 
           <cylinderGeometry args={[0.01, 0.01, 1.2, 10]} />
           <meshStandardMaterial color="#ffffff" roughness={0.3} />
         </mesh>
-        <mesh position={[0.16, 1.08, 0]}>
-          <boxGeometry args={[0.3, 0.2, 0.01]} />
+        <mesh position={[0.16, 1.08, 0]} geometry={roundedBox(0.3, 0.2, 0.01, 0.005)}>
           <Glass tint="#ff8fc7" />
         </mesh>
       </group>

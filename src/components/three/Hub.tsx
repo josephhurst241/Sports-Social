@@ -32,6 +32,7 @@ import { rigs } from "@/lib/game/rig";
 import { enterGame } from "@/lib/game/scenes";
 import { setView } from "@/lib/game/view";
 import { BackgroundGlass, Glass } from "./Glass";
+import { roundedBox, roundedDisc } from "./shapes";
 
 // The hub: a monolithic glass disc the players stand on, and the game islands
 // floating beyond its edge. Each player's hand casts a ray along the phone's
@@ -49,9 +50,8 @@ function Nexus() {
   return (
     <RigidBody type="fixed" colliders={false}>
       <CylinderCollider args={[0.125, NEXUS_RADIUS]} position={[0, -0.125, 0]} />
-      <mesh position={[0, -0.125, 0]} receiveShadow castShadow>
-        <cylinderGeometry args={[NEXUS_RADIUS, NEXUS_RADIUS, 0.25, 64]} />
-        <Glass tint="#eef9ff" />
+      <mesh position={[0, -0.125, 0]} geometry={roundedDisc(NEXUS_RADIUS, NEXUS_RADIUS, 0.25, 0.1, 96)} receiveShadow castShadow>
+        <Glass tint="#eef9ff" surface="large" />
       </mesh>
     </RigidBody>
   );
@@ -62,8 +62,7 @@ function Nexus() {
 function PingPongIcon({ tint }: { tint: string }) {
   return (
     <group rotation={[0.25, 0, -0.35]}>
-      <mesh castShadow rotation-x={Math.PI / 2}>
-        <cylinderGeometry args={[0.75, 0.75, 0.09, 64]} />
+      <mesh castShadow rotation-x={Math.PI / 2} geometry={roundedDisc(0.75, 0.75, 0.09, 0.04)}>
         <Glass tint={tint} />
       </mesh>
       <mesh castShadow position={[0, -1.0, 0]}>
@@ -103,16 +102,16 @@ function BowlingIcon({ tint }: { tint: string }) {
 function GolfIcon({ tint }: { tint: string }) {
   return (
     <group position={[0, -0.6, 0]}>
+      {/* A smooth pebble of a green, no rim */}
       <mesh castShadow scale={[1, 0.35, 1]}>
-        <sphereGeometry args={[0.9, 48, 24, 0, Math.PI * 2, 0, Math.PI / 2]} />
+        <sphereGeometry args={[0.9, 48, 32]} />
         <Glass tint={tint} />
       </mesh>
       <mesh castShadow position={[0.1, 0.95, 0]}>
         <cylinderGeometry args={[0.035, 0.035, 1.9, 12]} />
         <Glass tint="#ffffff" />
       </mesh>
-      <mesh castShadow position={[0.42, 1.65, 0]}>
-        <boxGeometry args={[0.6, 0.38, 0.04]} />
+      <mesh castShadow position={[0.42, 1.65, 0]} geometry={roundedBox(0.6, 0.38, 0.04, 0.02)}>
         <Glass tint="#ff9fd2" />
       </mesh>
       <mesh castShadow position={[-0.45, 0.42, 0.25]}>
@@ -156,8 +155,7 @@ function IslandView({ island }: { island: Island }) {
   return (
     <group ref={group}>
       {/* The island itself: a floating glass slab under the icon */}
-      <mesh position={[0, -1.25, 0]} castShadow>
-        <cylinderGeometry args={[2.1, 1.7, 0.35, 48]} />
+      <mesh position={[0, -1.25, 0]} geometry={roundedDisc(2.1, 1.7, 0.35, 0.12, 64)} castShadow>
         <BackgroundGlass tint="#f2fbff" />
       </mesh>
       <group ref={icon}>
@@ -297,7 +295,7 @@ function OrbitalRings() {
       {RINGS.map((ring, i) => (
         <mesh key={ring.radius} ref={(m) => { rings.current[i] = m; }}>
           <torusGeometry args={[ring.radius, 0.05, 12, 512]} />
-          <Glass />
+          <Glass surface="thin" />
         </mesh>
       ))}
     </group>

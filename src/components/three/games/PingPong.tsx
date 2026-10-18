@@ -123,7 +123,7 @@ export function TableModel() {
         castShadow
         receiveShadow
       >
-        <Glass tint="#9fd8ff" />
+        <Glass tint="#9fd8ff" surface="large" />
       </RoundedBox>
       <mesh geometry={lines}>
         <meshStandardMaterial color="#ffffff" roughness={0.4} />

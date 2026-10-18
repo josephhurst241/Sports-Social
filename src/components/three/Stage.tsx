@@ -1,7 +1,7 @@
 "use client";
 
 import { Environment } from "@react-three/drei";
-import { Canvas, useFrame } from "@react-three/fiber";
+import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Physics } from "@react-three/rapier";
 import { animated, useSpring } from "@react-spring/three";
 import { Suspense, useEffect, useMemo, useRef } from "react";
@@ -20,6 +20,7 @@ import { endRally, game as pingpong } from "@/lib/games/pingpong";
 import Avatar from "./Avatar";
 import CameraRig from "./CameraRig";
 import Feedback from "./Feedback";
+import { GlassPipeline } from "./Glass";
 import Hub from "./Hub";
 import { PHYSICS_STEP } from "./useKinematicFollow";
 
@@ -27,9 +28,11 @@ import { PHYSICS_STEP } from "./useKinematicFollow";
 // disc and game islands) and each game are separate scenes, swapped in and
 // out by the store's `scene`; the players and the camera carry over.
 
-/** Frame rate, store and game state on window.__glass, for scripts/check.mjs. */
+/** Frame rate, renderer, store and game state on window.__glass, for scripts/check.mjs. */
 function DebugHandle() {
-  const s = useRef({ frames: 0, since: 0, debug: { fps: 0, store: useGameStore, rigs, bowl, golf: golfState, pingpong, endRally, startCalibration, confirmReady, enterGame, exitToHub } }).current;
+  const gl = useThree((st) => st.gl);
+  const world = useThree((st) => st.scene);
+  const s = useRef({ frames: 0, since: 0, debug: { fps: 0, gl, world, store: useGameStore, rigs, bowl, golf: golfState, pingpong, endRally, startCalibration, confirmReady, enterGame, exitToHub } }).current;
   useEffect(() => {
     (window as unknown as { __glass: typeof s.debug }).__glass = s.debug;
   }, [s]);
@@ -165,6 +168,7 @@ export default function Stage() {
         <Environment preset="studio" />
         <ambientLight intensity={0.2} />
         <Sun />
+        <GlassPipeline />
         <Physics gravity={[0, -9.81, 0]} timeStep={PHYSICS_STEP}>
           {scene === "hub" && <Hub players={hubPlayers} />}
           {scene === "pingpong" && <PingPongScene />}

@@ -14,6 +14,7 @@ import { playSound } from "@/lib/audio/audioManager";
 import { announce, callout, feedback, nextTurn, playerName, useGameStore } from "@/store/gameStore";
 import Floor from "../Floor";
 import { BackgroundGlass } from "../Glass";
+import { roundedBox, roundedDisc } from "../shapes";
 
 // Bowling: hold the phone screen to pick up the ball, swing underhand, let
 // go to bowl. The swing's forward speed sets the pace; the phone's heading
@@ -136,13 +137,11 @@ function Lane() {
       {[-1, 1].map((side) => (
         <CuboidCollider key={side} args={[0.03, 0.4, 1.7]} position={[side * 0.95, 0.1, LANE.end + 0.5]} />
       ))}
-      <mesh position={[0, 0.1, LANE.end - 1.2]} receiveShadow>
-        <boxGeometry args={[2, 1, 0.1]} />
+      <mesh position={[0, 0.1, LANE.end - 1.2]} geometry={roundedBox(2, 1, 0.1, 0.05)} receiveShadow>
         <BackgroundGlass tint="#e8e2ff" />
       </mesh>
       {[-1, 1].map((side) => (
-        <mesh key={side} position={[side * 0.95, 0.1, LANE.end + 0.5]}>
-          <boxGeometry args={[0.06, 0.8, 3.4]} />
+        <mesh key={side} position={[side * 0.95, 0.1, LANE.end + 0.5]} geometry={roundedBox(0.06, 0.8, 3.4, 0.03)}>
           <BackgroundGlass tint="#f0f4ff" />
         </mesh>
       ))}
@@ -152,8 +151,7 @@ function Lane() {
         <meshBasicMaterial color="#ff4d6d" />
       </mesh>
       {/* Ball pedestal */}
-      <mesh position={[RACK.x, RACK.y / 2 - 0.06, RACK.z]} castShadow receiveShadow>
-        <cylinderGeometry args={[0.13, 0.17, RACK.y - 0.12, 32]} />
+      <mesh position={[RACK.x, RACK.y / 2 - 0.06, RACK.z]} geometry={roundedDisc(0.13, 0.17, RACK.y - 0.12, 0.04, 32)} castShadow receiveShadow>
         <BackgroundGlass tint="#f2fbff" />
       </mesh>
     </RigidBody>

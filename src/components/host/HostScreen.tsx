@@ -17,10 +17,12 @@ import CalDiagram from "@/components/CalDiagram";
 import { CAL_TEXT, REPS_MIN } from "@/lib/game/calibration";
 import { ISLANDS } from "@/lib/hub/islands";
 import { PLAYER_COLORS, type PlayerSlot } from "@/lib/net/protocol";
-import { requestRecenter, useGameStore, usePlayerName, useSplit } from "@/store/gameStore";
+import { GLASS_INTENSITIES, requestRecenter, useGameStore, usePlayerName, useSplit, type GlassIntensity } from "@/store/gameStore";
 
 /** Where the laptop remembers the glass look between visits. */
 const GLASS_KEY = "sports-social-glass";
+/** Where the laptop remembers the glass intensity between visits. */
+const GLASS_LEVEL_KEY = "sports-social-glass-intensity";
 /** Where the laptop remembers whether sound effects are on. */
 const SOUND_KEY = "sports-social-sound";
 
@@ -244,6 +246,31 @@ function Choice<T extends string>({ value, options, onChange }: { value: T; opti
           {label}
         </button>
       ))}
+    </div>
+  );
+}
+
+/** Sets the glass intensity and remembers it. */
+function setGlassIntensity(glassIntensity: GlassIntensity) {
+  useGameStore.setState({ glassIntensity });
+  try {
+    localStorage.setItem(GLASS_LEVEL_KEY, glassIntensity);
+  } catch {}
+}
+
+const GLASS_LABELS: Record<GlassIntensity, string> = { off: "Off", mild: "Mild", medium: "Med", high: "High" };
+
+/**
+ * How much glass the laptop renders, floating at the bottom edge: Off (no
+ * transmission at all, for slower machines) to High. Switching is instant:
+ * every level is compiled up front (GlassPipeline).
+ */
+function GlassAdjuster() {
+  const level = useGameStore((s) => s.glassIntensity);
+  return (
+    <div className="panel pointer-events-auto absolute bottom-8 left-1/2 flex -translate-x-1/2 items-center gap-3 rounded-full py-1 pr-1 pl-4">
+      <span className="text-[13px] font-semibold text-accent-ink">Glass</span>
+      <Choice value={level} options={GLASS_INTENSITIES.map((l) => [l, GLASS_LABELS[l]])} onChange={setGlassIntensity} />
     </div>
   );
 }
@@ -483,6 +510,8 @@ export default function HostScreen({ lanIp }: { lanIp: string | null }) {
   useEffect(() => {
     const saved = localStorage.getItem(GLASS_KEY);
     if (saved === "classic" || saved === "liquid") useGameStore.setState({ glassStyle: saved });
+    const level = localStorage.getItem(GLASS_LEVEL_KEY);
+    if (GLASS_INTENSITIES.includes(level as GlassIntensity)) useGameStore.setState({ glassIntensity: level as GlassIntensity });
     if (localStorage.getItem(SOUND_KEY) === "off") useGameStore.setState({ sound: false });
     const onKey = (e: KeyboardEvent) => {
       if (e.code === "KeyR") {
@@ -562,6 +591,7 @@ export default function HostScreen({ lanIp }: { lanIp: string | null }) {
         </div>
       )}
 
+      <GlassAdjuster />
       <footer className="pointer-events-none absolute inset-x-0 bottom-0 flex items-end justify-between gap-6 p-8">
         <div className="flex gap-3">
           <PlayerChip slot={0} />
