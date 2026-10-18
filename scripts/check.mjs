@@ -240,7 +240,9 @@ try {
     await sleep(250);
   };
   const scene = () => host.evaluate(`window.__glass.store.getState().scene`);
+  await touch(byLabel("Settings"));
   await touch(byText("Buttons"));
+  await touch(byText("Done"));
   await sleep(500);
   const hoverStart = await hovered();
   await touch(byLabel("Previous game"));
@@ -292,6 +294,9 @@ try {
   // it would send straight into Player 1's slot on the laptop, so every swing is exact.
   await phone.send("Page.navigate", { url: "about:blank" });
   await sleep(800);
+  // Bowling and golf wait while the player whose turn it is has no phone, so keep
+  // Player 1 marked present (in Buttons mode, so no game starts a calibration).
+  await host.evaluate(`(() => { const s = window.__glass.store; const p = [...s.getState().players]; p[0] = { ...p[0], connected: true }; s.setState({ players: p }); })()`);
   await host.evaluate(DRIVER);
   // frames: [quaternion [x,y,z,w], grip, duration ms]; rotations about X (pitch) or Y (heading)
   const pitch = (a) => [Math.sin(a / 2), 0, 0, Math.cos(a / 2)];
