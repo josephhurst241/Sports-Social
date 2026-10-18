@@ -1,11 +1,11 @@
 # Setting up Sports Social
 
 Everything needed to run the game from a fresh machine, then (optionally)
-turn on player accounts, career history and leaderboards. How to play is in
+turn on player accounts and career history. How to play is in
 [README.md](README.md).
 
 The game works fully without step 3: players are guests, nothing is saved,
-and the account buttons and leaderboards stay hidden.
+and the account buttons stay hidden.
 
 ---
 
@@ -71,20 +71,34 @@ the certificate for the new address).
 | Command | What it does |
 |---|---|
 | `npm run play` | Production build + server at `http://localhost:3000` (best frame rate; phones need HTTPS for Motion mode, Buttons mode works) |
-| `npm test` | Unit tests (golf cup model, bowling rules, narrator) |
+| `npm test` | Unit tests (golf cup model, bowling rules, calibration, aim assist, session stats) |
 | `npx tsc --noEmit`, `npx eslint .` | Type check, lint |
 | `node scripts/check.mjs --url=<url>` | Headless end-to-end check (expects Chrome at the macOS path; edit the path on Windows) |
 
-### Laptop keys
+### Settings and keys
 
-**R** recenter phones · **Esc** back to the hub · **G** switch the glass
-look · **N** mute the narrator (the volume slider is in the footer).
-The narrator's voice starts after the first click or key on the laptop page
-(browsers block sound until then); until then its lines show as subtitles.
+**Laptop:** the gear (top right) has sound effects (on/off), the glass look,
+and **Calibrate** for each Motion player. Keys: **R** recenter phones ·
+**Esc** back to the hub · **G** glass look.
+
+**Phone:** the gear (top right) has Buttons or Motion, **Calibrate motion**,
+**Aim** and **Swing** sensitivity (0.5x to 2x, Motion only; remembered on
+the phone), Recenter and Haptics.
+
+**Calibration:** the first time a phone uses Motion, it walks through hold
+still, turn left, turn right and three swings. Each step waits until you tap
+**Ready** on the phone, then gives you time (2 s, 5 s, 5 s; up to 30 s for the
+swings). **Skip** is in the phone's top right. It tunes aim and swing power to
+how that player moves. Run it again from either Settings, in the hub.
+
+**Grip:** in bowling and golf, hold the phone however is comfortable. The
+game takes your rest pose as you line up each shot (and when you recenter).
+
+**Ping pong with two people** shows a split screen, one half per player.
 
 ---
 
-## 3. Optional: accounts, career history, leaderboards
+## 3. Optional: accounts and career history
 
 Uses [Supabase](https://supabase.com) (free tier is plenty) for sign-in and
 the database. About 15 minutes. Players sign in on their **phone**, either
@@ -98,19 +112,17 @@ with **Google** or with a **6-digit code emailed to them**.
 
 ### 3.2 Create the tables and functions
 
-In the dashboard, open **SQL Editor** → **New query**, and run these two
-files from this repository **in this order** (paste the whole file, Run):
+In the dashboard, open **SQL Editor** → **New query**, and run this file
+from the repository (paste the whole file, Run):
 
-1. `supabase/migrations/20261017000001_accounts.sql`
-   (player names, game history, the `record_game` function that checks and
-   saves results, career totals)
-2. `supabase/migrations/20261017000002_leaderboard.sql`
-   (the `leaderboard` function)
+- `supabase/migrations/20261017000001_accounts.sql`
+  (player names, game history, the `record_game` function that checks and
+  saves results, career totals)
 
-Each should finish with "Success. No rows returned". (If you use the
+It should finish with "Success. No rows returned". (If you use the
 Supabase CLI instead: `supabase link`, then `supabase db push`.)
 
-> These files have not yet been run against a real database. If either
+> This file has not yet been run against a real database. If it
 > reports an error, keep the message: it will point at the line to fix.
 
 ### 3.3 Connect the app to the project
@@ -180,9 +192,7 @@ Supabase CLI instead: `supabase link`, then `supabase db push`.)
    the laptop's player chip shows it too.
 3. Finish a game (any of the three). The phone shows **Saved to your
    career**.
-4. Tap your name: **Career** shows the game; **Leaderboard** lists you.
-5. On the laptop hub, point at that game's island: its leaderboard appears
-   under the logo, with you marked in your player color.
+4. Tap your name: your career shows the game.
 
 ### Good to know
 
@@ -193,11 +203,7 @@ Supabase CLI instead: `supabase link`, then `supabase db push`.)
 - **Results are reported by the player's phone.** The database checks every
   score (it re-scores bowling from the rolls, checks golf cards and ping pong
   end scores, and allows at most 60 saves an hour), but a determined player
-  could still submit made-up games. Fine among friends; a public competitive
-  leaderboard would need the games run on a server.
-- **Leaderboards:** bowling best single game; golf best full round vs par;
-  ping pong wins vs the CPU, and win rate (5+ games). Each for all time and
-  this week (from Monday 00:00 UTC).
+  could still submit made-up games. Fine among friends.
 
 ### Deploying to a real domain later
 
@@ -220,7 +226,7 @@ Supabase CLI instead: `supabase link`, then `supabase db push`.)
 | Phone stuck on "Connecting…" | Same Wi-Fi? Firewall allows Node.js? Both devices online (for the PeerJS broker)? |
 | Motion mode refused | Motion needs the `https://` address and the motion permission; Buttons mode works anywhere. |
 | No **Sign in** button on the phone | `.env.local` missing or misspelled, or the dev server wasn't restarted after creating it. |
-| "Can't reach the server" in Career or Leaderboard | Check the Project URL in `.env.local` and that the project isn't paused (free projects pause after a week unused; resume it in the dashboard). |
+| "Can't reach the server" in your career | Check the Project URL in `.env.local` and that the project isn't paused (free projects pause after a week unused; resume it in the dashboard). |
 | Google sign-in returns an error about the redirect | Add the address you play on to **Redirect URLs** (3.4). |
 | "PKCE code verifier not found" after an email link | The link opened in a different browser than the game. Use the 6-digit code instead. |
 | Emails never arrive | Built-in email only reaches your team; set up SMTP (3.5). Check spam. |

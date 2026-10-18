@@ -60,6 +60,9 @@ const DEAD_MS = 1300;
 const MAGNET = 0.22;
 /** Paddle forward speed (m/s) that counts as swinging, for the near-miss allowance. */
 const SWING_MIN = 0.8;
+/** Aim assist for people (not the CPU): a wider near-miss reach, and a gentler swing still counts. */
+const MAGNET_PLAYER = 0.4;
+const SWING_MIN_PLAYER = 0.5;
 /** Assisted hit pace range, m/s (horizontal). */
 const HIT_MIN = 3.0;
 const HIT_MAX = 7.5;
@@ -164,6 +167,8 @@ export default function PingPong() {
     const rb = ball.current;
     if (!rb || game.phase !== "idle" || slot !== game.server) return;
     if (useGameStore.getState().scene !== "pingpong") return;
+    // No serving (by anyone, the CPU included) while a player is calibrating.
+    if (useGameStore.getState().calibration.some(Boolean)) return;
     game.lastHitter = null;
     game.farBounces = 0;
     game.touchedNet = false;
@@ -207,7 +212,8 @@ export default function PingPong() {
       const fx = -Math.sin(r.facing);
       const forward = s.bladeVel[slot].x * fx + s.bladeVel[slot].z * fz;
       const dist = Math.hypot(blade.x - bt.x, blade.y - bt.y, blade.z - bt.z);
-      if (dist < MAGNET && forward > SWING_MIN) onPaddleHit(slot);
+      const cpu = slot === 1 && useGameStore.getState().pingpong.cpu;
+      if (dist < (cpu ? MAGNET : MAGNET_PLAYER) && forward > (cpu ? SWING_MIN : SWING_MIN_PLAYER)) onPaddleHit(slot);
     }
   });
 

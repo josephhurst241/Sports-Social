@@ -16,7 +16,7 @@ import {
   Vector3,
 } from "three";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
-import { ARM, BLADE_OFFSET, BLADE_RADIUS, CONTACT, SHOULDER, rigs } from "@/lib/game/rig";
+import { ARM, BLADE_OFFSET, BLADE_RADIUS, CONTACT, PUTTER_SHAFT, SHOULDER, rigs } from "@/lib/game/rig";
 import { P, PLAYER_COLORS, type PlayerSlot } from "@/lib/net/protocol";
 import { useGameStore } from "@/store/gameStore";
 import { Glass } from "./Glass";
@@ -33,9 +33,15 @@ import { useKinematicFollow } from "./useKinematicFollow";
 // - paddle: the hand swings around the shoulder, turned by the phone's
 //   facing, so a forehand sweeps the paddle forward across the body.
 //
-// In both, the phone's linear acceleration adds a short-lived push (a leaky
-// integral that springs back), and the rotation and position are smoothed
-// toward the network pose with Quaternion.slerp and MathUtils.lerp.
+// - pendulum (bowling, golf): the arm hangs from the shoulder and swings with
+//   the phone, measured from the pose the player held at rest (rig
+//   neutralSeq), so any natural grip works: at rest the arm hangs straight
+//   down, swinging forward swings it, turning aims.
+//
+// In all of them the phone's linear acceleration moves the hand too, in all
+// three directions (a leaky integral that eases back to center), and the
+// rotation and position are smoothed toward the network pose with
+// Quaternion.slerp and MathUtils.lerp.
 
 const UP = new Vector3(0, 1, 0);
 
@@ -51,16 +57,19 @@ const PENDULUM_ARM = 0.6;
 const LEFT_HAND = new Vector3(-0.38, 0.86, -0.08);
 const PHONE = { w: 0.108, h: 0.225, d: 0.016 };
 /** Putter, hanging from the hand along the phone's bottom edge: its head rests just above the grass. */
-export const PUTTER = { shaft: 0.74, head: [0.14, 0.035, 0.045] as const };
+export const PUTTER = { shaft: PUTTER_SHAFT, head: [0.2, 0.045, 0.06] as const };
 
 const ROT_RATE = 24;
 const POS_RATE = 30;
 const ASSIST_RATE = 10;
 const SLIDE_SPEED = 2.6;
 const MAX_SWING = 2.3;
-const ACCEL_VEL_DECAY = 7;
-const ACCEL_POS_DECAY = 3.5;
-const ACCEL_MAX = 0.3;
+/** How the phone's own movement carries the hand: decay of the speed, of the offset, and its reach (m). */
+const ACCEL_VEL_DECAY = 4.5;
+const ACCEL_POS_DECAY = 2.2;
+const ACCEL_MAX = 0.5;
+/** Ping pong: tipping the phone forward or back lowers or raises the paddle hand this much (m), at most. */
+const PADDLE_LIFT = 0.22;
 const STALE_MS = 500;
 const SERVE_LIFT = 0.32;
 const SERVE_AHEAD = 0.05;
@@ -127,6 +136,17 @@ export default function Avatar({ slot, tint = PLAYER_COLORS[slot] }: { slot: Pla
     accelOff: new Vector3(),
     v: new Vector3(),
     e: new Euler(),
+    yawQ: new Quaternion(),
+    /** The rest pose for the swing arm, and the delta from it (pendulum only). */
+    neutral: new Quaternion(),
+    hasNeutral: false,
+    neutralSeq: -1,
+    neutralPlaced: 0,
+    neutralRecenter: -1,
+    neutralInv: new Quaternion(),
+    relQ: new Quaternion(),
+    dispQ: new Quaternion(),
+    fwd: new Vector3(),
     first: true,
   }).current;
 
@@ -167,6 +187,16 @@ export default function Avatar({ slot, tint = PLAYER_COLORS[slot] }: { slot: Pla
         s.calQ.setFromAxisAngle(UP, -Math.atan2(-d.x, -d.z));
       }
       s.netQ.premultiply(s.calQ).premultiply(s.faceQ);
+      // The player's Aim sensitivity: scales how far turning the phone turns
+      // the aim. Applied to the yaw here, at the source, it carries to
+      // pointing, the paddle and every aim.
+      const turn = rig.sens.aim;
+      if (turn !== 1) {
+        let d = s.v.set(0, 0, faceAxis).applyQuaternion(s.netQ);
+        if (Math.hypot(d.x, d.z) < 0.3) d = s.v.set(0, 1, 0).applyQuaternion(s.netQ);
+        const yaw = wrapPi(Math.atan2(-d.x, -d.z) - facing);
+        s.netQ.premultiply(s.yawQ.setFromAxisAngle(UP, yaw * (turn - 1)));
+      }
     } else {
       s.calibrated = false;
       // Rest: phone upright with its working face forward.
@@ -176,10 +206,36 @@ export default function Avatar({ slot, tint = PLAYER_COLORS[slot] }: { slot: Pla
     if (s.first) s.handQ.copy(s.netQ);
     s.handQ.slerp(s.netQ, 1 - Math.exp(-dt * ROT_RATE));
 
-    // Heading of the working face, relative to facing: the paddle swing and the aim.
-    let b = s.v.set(0, 0, faceAxis).applyQuaternion(s.handQ);
-    if (Math.hypot(b.x, b.z) < 0.3) b = s.v.set(0, 1, 0).applyQuaternion(s.handQ);
-    rig.heading = wrapPi(Math.atan2(-b.x, -b.z) - facing);
+    // The swing arm's rest pose: captured when the scene lines the player up
+    // (placed, neutralSeq) or on a recenter, from however the phone is held
+    // then. Buttons and the CPU send an upright rest, as before.
+    const pendulum = rig.arm === "pendulum";
+    if (pendulum && live && (rig.neutralSeq !== s.neutralSeq || rig.placed !== s.neutralPlaced || tel.recenterSeq !== s.neutralRecenter)) {
+      s.neutralSeq = rig.neutralSeq;
+      s.neutralPlaced = rig.placed;
+      s.neutralRecenter = tel.recenterSeq;
+      s.neutral.copy(tel.source === "local" || tel.virtual ? s.faceQ : s.netQ);
+      s.hasNeutral = true;
+    }
+    if (pendulum) {
+      // How the phone has turned since rest, in the world: it moves the arm from hanging straight down.
+      s.neutralInv.copy(s.hasNeutral ? s.neutral : s.faceQ).invert();
+      s.relQ.copy(s.handQ).multiply(s.neutralInv);
+      s.dispQ.copy(s.relQ).multiply(s.faceQ);
+    }
+
+    // Heading relative to facing: the paddle swing and the aim. The swing arm
+    // measures it from the rest pose; the others from the working face.
+    let b: Vector3;
+    if (pendulum) b = s.v.set(-Math.sin(facing), 0, -Math.cos(facing)).applyQuaternion(s.relQ);
+    else {
+      b = s.v.set(0, 0, faceAxis).applyQuaternion(s.handQ);
+      if (Math.hypot(b.x, b.z) < 0.3) b = s.v.set(0, 1, 0).applyQuaternion(s.handQ);
+    }
+    // Calibration's aim zero for this game: where this player naturally points
+    // when aiming straight is subtracted, so their straight is straight.
+    const aimZero = scene === "hub" ? 0 : (rig.games[scene]?.aimZero ?? 0);
+    rig.heading = wrapPi(Math.atan2(-b.x, -b.z) - facing - aimZero);
 
     // Leaky integral of linear acceleration (phone frame -> world frame first)
     if (live) s.accel.set(p[P.AX], p[P.AY], p[P.AZ]).applyQuaternion(s.handQ);
@@ -195,13 +251,16 @@ export default function Avatar({ slot, tint = PLAYER_COLORS[slot] }: { slot: Pla
     if (rig.arm === "paddle") {
       rig.paddleSwing = MathUtils.clamp(rig.heading, -MAX_SWING, MAX_SWING);
       s.target.copy(ARM).applyAxisAngle(UP, rig.paddleSwing).add(SHOULDER).applyAxisAngle(UP, facing).add(rig.root);
-      s.target.y += s.assistY;
+      // Up and down too: tip the phone's top forward to reach low, back to reach high.
+      s.fwd.set(-Math.sin(facing), 0, -Math.cos(facing));
+      const tip = s.v.set(0, 1, 0).applyQuaternion(s.handQ).dot(s.fwd);
+      s.target.y += s.assistY - MathUtils.clamp(tip, -1, 1) * PADDLE_LIFT;
     } else if (rig.arm === "pendulum") {
       s.target
         .copy(PENDULUM_SHOULDER)
         .applyAxisAngle(UP, facing)
         .add(rig.root)
-        .addScaledVector(s.v.set(0, -1, 0).applyQuaternion(s.handQ), PENDULUM_ARM);
+        .addScaledVector(s.v.set(0, -1, 0).applyQuaternion(s.relQ), PENDULUM_ARM);
     } else {
       s.target
         .copy(ELBOW)
@@ -224,9 +283,10 @@ export default function Avatar({ slot, tint = PLAYER_COLORS[slot] }: { slot: Pla
     rig.handVel.lerp(s.v.subVectors(s.handPos, s.prevHand).divideScalar(Math.max(dt, 1e-3)), 0.5);
     s.prevHand.copy(s.handPos);
     rig.handPos.copy(s.handPos);
-    rig.handQuat.copy(s.handQ);
+    // The swing arm's hand turns from upright by the same delta, so a putter or ball hangs from it naturally.
+    rig.handQuat.copy(pendulum ? s.dispQ : s.handQ);
     fRight.targetPos.copy(s.handPos);
-    fRight.targetQuat.copy(s.handQ);
+    fRight.targetQuat.copy(rig.handQuat);
 
     // Paddle extras for ping pong
     s.prevBlade.copy(rig.bladePos);

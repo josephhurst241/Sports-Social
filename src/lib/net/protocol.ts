@@ -51,6 +51,8 @@ export type PlayerSlot = 0 | 1;
 export const PLAYER_COLORS = ["#00FFFF", "#FF00FF"] as const;
 export const PLAYER_NAMES = ["Player 1", "Player 2"] as const;
 
+import type { CalView } from "@/lib/game/calibration";
+
 /** Longest display name the laptop accepts from a phone. */
 export const NAME_MAX = 24;
 
@@ -70,7 +72,8 @@ export type HostToClient =
   | { t: "scene"; scene: string } // what the laptop is showing, for the phone's hint
   | { t: "turn"; slot: PlayerSlot | null } // whose turn in bowling and golf (null: everyone plays)
   | { t: "names"; names: [string, string] } // what each player is called (account names, else Player 1/2)
-  | { t: "result"; result: GameResult }; // this player's finished game, to save to their career
+  | { t: "result"; result: GameResult } // this player's finished game, to save to their career
+  | { t: "calibration"; state: CalView | null }; // this player's motion calibration step (null: not calibrating)
 
 export type ClientToHost =
   | { t: "hello" }
@@ -80,4 +83,10 @@ export type ClientToHost =
   // in the player's frame (no compass heading to zero); "motion": real sensors.
   | { t: "input"; mode: "motion" | "buttons" }
   // Who is playing on this phone: a signed-in account (id) or a guest (null, null).
-  | { t: "profile"; id: string | null; name: string | null };
+  | { t: "profile"; id: string | null; name: string | null }
+  // Motion calibration: run it again (from Settings, in the hub), ready for the next step, or skip it.
+  | { t: "calibrate" }
+  | { t: "calibrate-ready" }
+  | { t: "calibrate-skip" }
+  // The player's own Aim and Swing sensitivity (0.5 to 2), from the phone's Settings.
+  | { t: "sensitivity"; aim: number; swing: number };

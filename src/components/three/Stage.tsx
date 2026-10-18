@@ -6,6 +6,7 @@ import { Physics } from "@react-three/rapier";
 import { animated, useSpring } from "@react-spring/three";
 import { Suspense, useEffect, useMemo, useRef } from "react";
 import { BackSide, MeshBasicMaterial, NeutralToneMapping, type Mesh } from "three";
+import { confirmReady, startCalibration, stepCalibration } from "@/lib/game/calibrating";
 import { rigs } from "@/lib/game/rig";
 import { useColorTheme } from "@/lib/game/theme";
 import { enterGame, exitToHub, placeInHub } from "@/lib/game/scenes";
@@ -16,10 +17,9 @@ import Bowling, { bowl } from "./games/Bowling";
 import Golf, { golfState } from "./games/Golf";
 import PingPongScene from "./games/PingPongScene";
 import { endRally, game as pingpong } from "@/lib/games/pingpong";
-import { narrate } from "@/lib/narrator/events";
-import { narratorState } from "@/lib/narrator/narrator";
 import Avatar from "./Avatar";
 import CameraRig from "./CameraRig";
+import Feedback from "./Feedback";
 import Hub from "./Hub";
 import { PHYSICS_STEP } from "./useKinematicFollow";
 
@@ -27,9 +27,9 @@ import { PHYSICS_STEP } from "./useKinematicFollow";
 // disc and game islands) and each game are separate scenes, swapped in and
 // out by the store's `scene`; the players and the camera carry over.
 
-/** Frame rate, store, game state and the narrator's history on window.__glass, for scripts/check.mjs. */
+/** Frame rate, store and game state on window.__glass, for scripts/check.mjs. */
 function DebugHandle() {
-  const s = useRef({ frames: 0, since: 0, debug: { fps: 0, store: useGameStore, rigs, bowl, golf: golfState, pingpong, endRally, narrator: narratorState, narrate, enterGame, exitToHub } }).current;
+  const s = useRef({ frames: 0, since: 0, debug: { fps: 0, store: useGameStore, rigs, bowl, golf: golfState, pingpong, endRally, startCalibration, confirmReady, enterGame, exitToHub } }).current;
   useEffect(() => {
     (window as unknown as { __glass: typeof s.debug }).__glass = s.debug;
   }, [s]);
@@ -42,6 +42,12 @@ function DebugHandle() {
       s.since = now;
     }
   });
+  return null;
+}
+
+/** Runs any player's motion calibration (lib/game/calibrating.ts), one step a frame. */
+function CalibrationRunner() {
+  useFrame(() => stepCalibration(performance.now()));
   return null;
 }
 
@@ -153,6 +159,8 @@ export default function Stage() {
       <Atmosphere />
       <CameraRig />
       <DebugHandle />
+      <CalibrationRunner />
+      <Feedback />
       <Suspense fallback={null}>
         <Environment preset="studio" />
         <ambientLight intensity={0.2} />

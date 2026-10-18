@@ -10,7 +10,10 @@ import {
   type HostToClient,
   type PlayerSlot,
 } from "./protocol";
-import { narrate } from "@/lib/narrator/events";
+import { NEUTRAL_SENSITIVITY, cleanSensitivity } from "@/lib/game/calibration";
+import { cancelCalibration, confirmReady, resetCalibration, startCalibration } from "@/lib/game/calibrating";
+import { rigs } from "@/lib/game/rig";
+import { addToSession, emptySession, type SessionStats } from "@/lib/games/session";
 import {
   currentTurn,
   playerName,
@@ -60,20 +63,22 @@ export function broadcast(msg: HostToClient) {
 /** A finished game, to the player's phone, which saves it to their career if they are signed in. */
 export function sendResult(slot: PlayerSlot, result: GameResult) {
   sendToClient(slot, { t: "result", result });
+  // The session record too, for guests and signed-in players alike.
+  const session = [...useGameStore.getState().session] as [SessionStats, SessionStats];
+  session[slot] = addToSession(session[slot], result);
+  useGameStore.setState({ session });
+}
+
+/** Wipes a player's session record (they left, or a new phone took the slot). */
+function clearSession(slot: PlayerSlot) {
+  const session = [...useGameStore.getState().session] as [SessionStats, SessionStats];
+  session[slot] = emptySession();
+  useGameStore.setState({ session });
 }
 
 /** The names everyone sees: account names, else Player 1/2. */
 const names = (): [string, string] => [playerName(0), playerName(1)];
 
-/** A phone's join is announced once its name is known (it sends it right after connecting), or after this long. */
-const JOIN_NAME_WAIT_MS = 1500;
-const pendingJoin: [number, number] = [0, 0];
-function announceJoin(slot: PlayerSlot) {
-  if (!pendingJoin[slot]) return;
-  clearTimeout(pendingJoin[slot]);
-  pendingJoin[slot] = 0;
-  narrate({ type: "join", name: playerName(slot) });
-}
 
 /** A phone asked to leave the current game (three-finger tap). Set by the scene layer. */
 let exitHandler: (() => void) | null = null;
@@ -119,12 +124,30 @@ export async function startHost(): Promise<() => void> {
 
   // Tell the phones whose turn it is whenever that changes (a turn-based game
   // starts, ends, or passes to the other player), so the waiting one says so.
+  // Likewise each player's calibration step, to their own phone; and back in
+  // the hub, calibrate anyone who switched to Motion during a game.
+  let cal = useGameStore.getState().calibration;
+  let scene = useGameStore.getState().scene;
   // Likewise each player's name when someone signs in, joins or leaves.
   let turn = currentTurn();
   let named = names().join("|");
   const stopTurns = useGameStore.subscribe(() => {
     const next = currentTurn();
     if (next !== turn) broadcast({ t: "turn", slot: (turn = next) });
+    const st = useGameStore.getState();
+    if (st.scene !== scene) {
+      scene = st.scene;
+      // Each game is calibrated the first time a Motion player enters it; leaving cancels a run.
+      for (const slot of [0, 1] as const) {
+        cancelCalibration(slot);
+        if (scene !== "hub" && st.players[slot].connected && st.inputModes[slot] === "motion" && !rigs[slot].games[scene]) startCalibration(slot, scene);
+      }
+    }
+    const nowCal = useGameStore.getState().calibration;
+    if (nowCal !== cal) {
+      for (const slot of [0, 1] as const) if (nowCal[slot] !== cal[slot]) sendToClient(slot, { t: "calibration", state: nowCal[slot] });
+      cal = nowCal;
+    }
     const now = names();
     if (now.join("|") !== named) {
       named = now.join("|");
@@ -146,11 +169,10 @@ export async function startHost(): Promise<() => void> {
 function release(slot: PlayerSlot, conn: DataConnection | null) {
   if (conns[slot] !== conn) return;
   conns[slot] = null;
-  const name = playerName(slot);
-  clearTimeout(pendingJoin[slot]);
-  pendingJoin[slot] = 0;
   setPlayer(slot, { connected: false, peerId: null, account: null });
-  narrate({ type: "leave", name });
+  clearSession(slot);
+  resetCalibration(slot);
+  rigs[slot].sens = { ...NEUTRAL_SENSITIVITY };
   resetTelemetry(slot);
 }
 
@@ -180,7 +202,7 @@ function attach(conn: DataConnection) {
 
   resetTelemetry(slot);
   setPlayer(slot, { connected: true, peerId: conn.peer, account: null });
-  pendingJoin[slot] = window.setTimeout(() => announceJoin(slot), JOIN_NAME_WAIT_MS);
+  clearSession(slot);
   conn.send({ t: "welcome", slot } satisfies HostToClient);
   conn.send({ t: "scene", scene: useGameStore.getState().scene } satisfies HostToClient);
   conn.send({ t: "turn", slot: currentTurn() } satisfies HostToClient);
@@ -195,13 +217,23 @@ function attach(conn: DataConnection) {
       const inputModes = [...useGameStore.getState().inputModes] as ["motion" | "buttons", "motion" | "buttons"];
       inputModes[slot] = msg.mode;
       useGameStore.setState({ inputModes });
+      // Motion is calibrated the first time it is used in each game; Buttons needs none.
+      const scene = useGameStore.getState().scene;
+      if (msg.mode === "motion" && scene !== "hub" && !rigs[slot].games[scene]) startCalibration(slot, scene);
+      if (msg.mode === "buttons") cancelCalibration(slot);
     } else if (msg?.t === "profile") {
       // Who is on this phone. Names come from another device, so trim and cap them.
       const name = typeof msg.name === "string" ? msg.name.replace(/\s+/g, " ").trim().slice(0, NAME_MAX) : "";
       const account = name ? { id: typeof msg.id === "string" ? msg.id : null, name } : null;
       setPlayer(slot, { ...useGameStore.getState().players[slot], account });
-      announceJoin(slot);
+    } else if (msg?.t === "calibrate") {
+      // From Settings: calibrate the game this player is in again.
+      const scene = useGameStore.getState().scene;
+      if (scene !== "hub") startCalibration(slot, scene);
     }
+    else if (msg?.t === "calibrate-ready") confirmReady(slot);
+    else if (msg?.t === "calibrate-skip") cancelCalibration(slot);
+    else if (msg?.t === "sensitivity") rigs[slot].sens = { aim: cleanSensitivity(msg.aim), swing: cleanSensitivity(msg.swing) };
   });
   const drop = () => {
     channel.close();

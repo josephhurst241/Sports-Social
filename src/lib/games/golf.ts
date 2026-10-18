@@ -54,10 +54,10 @@ export const CUP_R = 0.075;
 
 /** Gravity in the cup model, m/s². */
 export const CUP_G = 9.81;
-/** Sunk at least this many ball radii at the far rim: it drops (dead center, below about 1.8 m/s). */
-export const DROP_DEPTH = 1;
-/** Sunk less than this many radii: it hops over the hole; in between, a lip-out (dead center, hops above about 3 m/s). */
-export const LIP_DEPTH = 0.35;
+/** Sunk at least this many ball radii at the far rim: it drops (dead center, below about 1.9 m/s). Forgiving: a real cup wants about a full radius. */
+export const DROP_DEPTH = 0.85;
+/** Sunk less than this many radii: it hops over the hole; in between, a lip-out (dead center, hops above about 3.2 m/s). */
+export const LIP_DEPTH = 0.3;
 /** The most a lip-out turns the ball, radians: a deep catch on an off-center line curls furthest around the rim. */
 export const LIP_TURN = 1.4;
 /** Share of its speed a lip-out keeps: a glancing catch keeps the first, a near drop the second. */

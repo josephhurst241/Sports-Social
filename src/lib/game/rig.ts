@@ -1,4 +1,5 @@
 import type { RapierRigidBody } from "@react-three/rapier";
+import { NEUTRAL_SENSITIVITY, type CalGame, type GameCal, type Sensitivity } from "./calibration";
 import { Quaternion, Vector3 } from "three";
 import type { PlayerSlot } from "@/lib/net/protocol";
 
@@ -22,9 +23,12 @@ export type ArmMode = "pointer" | "paddle" | "pendulum";
 // Paddle arm, avatar-local (facing -Z, +X = the player's right)
 export const SHOULDER = new Vector3(0.15, 1.3, 0);
 export const ARM = new Vector3(0.4, -0.3, -0.25);
+/** The putter's shaft, hanging from the hand along the phone's bottom edge (golf and its calibration). */
+export const PUTTER_SHAFT = 0.74;
 /** Paddle blade center above the hand, along the handle (the phone's top axis). */
 export const BLADE_OFFSET = 0.13;
-export const BLADE_RADIUS = 0.1;
+/** Paddle blade radius, m: larger than a real one (7.5 cm), so hits are forgiving. */
+export const BLADE_RADIUS = 0.13;
 /** Blade center at a straight-on hit (swing 0, no height assist), avatar-local. */
 export const CONTACT = new Vector3().copy(SHOULDER).add(ARM).add(new Vector3(0, BLADE_OFFSET, 0));
 
@@ -61,6 +65,16 @@ export interface Rig {
   servePoint: Vector3;
   /** The physics body holding hand and paddle, for exact per-step contact checks. */
   paddleBody: RapierRigidBody | null;
+  /**
+   * Bumped to capture the player's rest pose for the swing arm (bowling,
+   * golf): however they hold the phone at that moment counts as "arm hanging,
+   * aimed straight". The scenes bump it when the player lines up a shot.
+   */
+  neutralSeq: number;
+  /** This player's motion calibration per game (calibration.ts): swing scale and aim zero; none until measured. */
+  games: Partial<Record<CalGame, GameCal>>;
+  /** Their own Aim and Swing sensitivity from the phone's Settings, multiplied in on top (1 = as calibrated). */
+  sens: Sensitivity;
   /** -1..1, biases where hits land (CPU aim). */
   aim: number;
 }
@@ -87,6 +101,9 @@ const makeRig = (): Rig => ({
   servePoint: new Vector3(),
   paddleBody: null,
   aim: 0,
+  games: {},
+  sens: { ...NEUTRAL_SENSITIVITY },
+  neutralSeq: 0,
 });
 
 export const rigs: [Rig, Rig] = [makeRig(), makeRig()];

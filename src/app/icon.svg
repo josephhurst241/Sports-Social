@@ -1,20 +1,24 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <!-- The Sports Social mark (src/components/brand/Logo.tsx) in the hub's colors -->
+  <!-- The Sports Social mark (src/components/brand/Logo.tsx) in the hub's colors: a glass ping pong paddle and ball -->
   <defs>
-    <clipPath id="c"><circle cx="24" cy="32" r="17"/><circle cx="40" cy="32" r="17"/></clipPath>
+    <clipPath id="c"><ellipse cx="28" cy="25" rx="16.5" ry="17.5"/></clipPath>
     <linearGradient id="s" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#fff" stop-opacity=".75"/><stop offset=".5" stop-color="#fff" stop-opacity="0"/>
+      <stop offset="0" stop-color="#fff" stop-opacity=".55"/><stop offset=".5" stop-color="#fff" stop-opacity="0"/>
     </linearGradient>
-    <radialGradient id="d" cx=".5" cy=".15" r=".95">
-      <stop offset=".6" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".28"/>
+    <radialGradient id="d" cx=".4" cy=".25" r=".9">
+      <stop offset=".6" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".3"/>
     </radialGradient>
   </defs>
-  <circle cx="24" cy="32" r="17" fill="#2b6a85"/>
-  <circle cx="40" cy="32" r="17" fill="#2b6a85" fill-opacity=".55"/>
-  <g clip-path="url(#c)">
-    <rect width="64" height="64" fill="url(#d)"/>
-    <ellipse cx="32" cy="22" rx="30" ry="12" fill="url(#s)"/>
+  <g transform="rotate(32 28 34)">
+    <path d="M24.5 40.5 L31.5 40.5 L33 55 Q28 58.5 23 55 Z" fill="#2b6a85" fill-opacity=".45" stroke="#fff" stroke-opacity=".5" stroke-width=".8"/>
+    <ellipse cx="28" cy="25" rx="16.5" ry="17.5" fill="#2b6a85"/>
+    <g clip-path="url(#c)">
+      <rect width="64" height="64" fill="url(#d)"/>
+      <ellipse cx="25" cy="16" rx="12" ry="6.5" fill="url(#s)"/>
+    </g>
+    <ellipse cx="28" cy="25" rx="15.75" ry="16.75" fill="none" stroke="#fff" stroke-opacity=".55"/>
   </g>
-  <circle cx="24" cy="32" r="16.25" fill="none" stroke="#fff" stroke-opacity=".6"/>
-  <circle cx="40" cy="32" r="16.25" fill="none" stroke="#fff" stroke-opacity=".6"/>
+  <circle cx="52" cy="11" r="6.5" fill="#2b6a85" fill-opacity=".5"/>
+  <circle cx="52" cy="11" r="5.9" fill="none" stroke="#fff" stroke-opacity=".6" stroke-width=".9"/>
+  <circle cx="50" cy="8.8" r="1.6" fill="#fff" fill-opacity=".85"/>
 </svg>

@@ -8,8 +8,6 @@
   --color-ink: #000000;
   --color-ink-2: #3c3c43;
   --color-ink-3: #8e8e93;
-  --color-p1: #00ffff;
-  --color-p2: #ff00ff;
 }
 
 /* The scene's color signature (lib/game/theme.ts themeVars), set on the page
@@ -61,21 +59,21 @@ body {
 /* The one panel style. Opaque enough that the scene never muddies the text,
    tinted a breath toward the fog so it belongs to the world, and edged by a
    hairline of the accent. Saturation stays low so colored glass behind it
-   does not flare through. */
+   does not flare through. The blur is re-done over the moving scene every
+   frame and costs with its radius; at this opacity a wider one shows no
+   difference, so it stays modest. */
 @utility panel {
   background: color-mix(in oklab, var(--wash) 35%, rgb(255 255 255 / 0.7));
-  backdrop-filter: blur(var(--blur-2xl)) saturate(120%);
-  -webkit-backdrop-filter: blur(var(--blur-2xl)) saturate(120%);
+  backdrop-filter: blur(var(--blur-lg)) saturate(120%);
+  -webkit-backdrop-filter: blur(var(--blur-lg)) saturate(120%);
   box-shadow: 0 0 0 1px color-mix(in oklab, var(--accent-ink) 14%, transparent);
 }
 
 /* The inverse panel, for what is momentary or primary (a callout, the
    phone's main button): solid accent ink, white text. Used sparingly, so it
-   stands out from the light panels around it. */
+   stands out from the light panels around it. Nearly opaque, so no blur. */
 @utility panel-ink {
   background: color-mix(in oklab, var(--accent-ink) 92%, transparent);
-  backdrop-filter: blur(var(--blur-xl));
-  -webkit-backdrop-filter: blur(var(--blur-xl));
   color: #ffffff;
 }
 
@@ -102,9 +100,33 @@ body {
   opacity: 1;
   animation: logo-sheen 0.7s cubic-bezier(0.4, 0, 0.2, 1) both;
 }
+/* The ball's glint: a four-point star that flares and fades, after the sweep. */
+@keyframes logo-glint {
+  0% {
+    opacity: 0;
+    transform: scale(0.2) rotate(0deg);
+  }
+  45% {
+    opacity: 1;
+    transform: scale(1) rotate(25deg);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.4) rotate(45deg);
+  }
+}
+.logo-glint {
+  opacity: 0;
+}
+.logo-glint-run,
+.logo:hover .logo-glint {
+  animation: logo-glint 0.6s ease-out 0.2s both;
+}
 @media (prefers-reduced-motion: reduce) {
   .logo-sweep-run,
-  .logo:hover .logo-sweep {
+  .logo:hover .logo-sweep,
+  .logo-glint-run,
+  .logo:hover .logo-glint {
     animation: none;
     opacity: 0;
   }
@@ -158,6 +180,9 @@ html[data-intro="skip"] .splash {
 .splash .logo-sweep-run {
   animation-delay: 0.3s;
 }
+.splash .logo-glint-run {
+  animation-delay: 0.6s;
+}
 @keyframes splash-mark {
   from {
     opacity: 0;
@@ -181,5 +206,72 @@ html[data-intro="skip"] .splash {
 @keyframes splash-fade {
   from {
     opacity: 0;
+  }
+}
+
+/* Make and miss on the callout (HostScreen): a little pop, a small shake. */
+@keyframes callout-make {
+  40% {
+    transform: scale(1.07);
+  }
+}
+@keyframes callout-miss {
+  20% {
+    transform: translateX(-4px);
+  }
+  45% {
+    transform: translateX(4px);
+  }
+  70% {
+    transform: translateX(-2px);
+  }
+}
+.callout-make {
+  animation: callout-make 0.38s cubic-bezier(0.3, 0, 0.3, 1);
+}
+.callout-miss {
+  animation: callout-miss 0.36s ease-in-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .callout-make,
+  .callout-miss {
+    animation: none;
+  }
+}
+
+/* Calibration diagrams (CalDiagram): the action to copy, moving. */
+@keyframes cal-swing {
+  from {
+    transform: rotate(-22deg);
+  }
+  to {
+    transform: rotate(22deg);
+  }
+}
+@keyframes cal-sweep {
+  from {
+    transform: translateX(-38px) rotate(-12deg);
+  }
+  to {
+    transform: translateX(38px) rotate(12deg);
+  }
+}
+.cal-golf {
+  transform-origin: 100px 26px;
+  animation: cal-swing 1.4s ease-in-out infinite alternate;
+}
+.cal-bowling {
+  transform-origin: 100px 18px;
+  animation: cal-swing 1.3s ease-in-out infinite alternate;
+}
+.cal-pingpong {
+  transform-origin: 100px 120px;
+  animation: cal-sweep 1.1s ease-in-out infinite alternate;
+}
+@media (prefers-reduced-motion: reduce) {
+  .cal-golf,
+  .cal-bowling,
+  .cal-pingpong {
+    animation: none;
   }
 }

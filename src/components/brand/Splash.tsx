@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { useGameStore } from "@/store/gameStore";
+import { playChime } from "./chime";
 import Logo from "./Logo";
 
 // The startup animation: the logo scales in out of a blur, its sheen sweeps
@@ -42,7 +43,14 @@ export default function Splash({ variant }: { variant: "host" | "phone" }) {
       if (!fade || fade.playState === "finished") finish();
       else fade.finished.then(finish, watch);
     };
+    // The chime with the ball's glint (0.6 s after first paint), if the browser
+    // allows sound yet; a click or key that skips the intro allows it, so the
+    // skip chimes instead. Not when sound effects are off.
+    const chime = () => useGameStore.getState().sound && playChime();
+    const glintIn = 650 - performance.now();
+    const glint = glintIn > -250 ? window.setTimeout(chime, Math.max(0, glintIn)) : 0;
     const skip = () => {
+      if (html.dataset.intro !== "skip") chime();
       html.dataset.intro = "skip";
       requestAnimationFrame(watch);
     };
@@ -50,6 +58,7 @@ export default function Splash({ variant }: { variant: "host" | "phone" }) {
     window.addEventListener("keydown", skip);
     watch();
     return () => {
+      clearTimeout(glint);
       window.removeEventListener("pointerdown", skip);
       window.removeEventListener("keydown", skip);
     };

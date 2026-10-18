@@ -3,8 +3,27 @@
 import { Html, MeshReflectorMaterial } from "@react-three/drei";
 import { useFrame } from "@react-three/fiber";
 import { CylinderCollider, RigidBody } from "@react-three/rapier";
-import { useMemo, useRef } from "react";
-import { CylinderGeometry, Euler, LatheGeometry, MathUtils, Quaternion, Ray, Sphere, Vector2, Vector3, type Group, type Mesh } from "three";
+import { useEffect, useMemo, useRef } from "react";
+import {
+  CapsuleGeometry,
+  CylinderGeometry,
+  Euler,
+  IcosahedronGeometry,
+  LatheGeometry,
+  MathUtils,
+  MeshStandardMaterial,
+  OctahedronGeometry,
+  Quaternion,
+  Ray,
+  Sphere,
+  SphereGeometry,
+  TorusGeometry,
+  Vector2,
+  Vector3,
+  type BufferGeometry,
+  type Group,
+  type Mesh,
+} from "three";
 import { ISLANDS, ISLAND_HIT_RADIUS, NEXUS_RADIUS, islandCenter, type Island, type IslandId } from "@/lib/hub/islands";
 import { PLAYER_COLORS, type PlayerSlot } from "@/lib/net/protocol";
 import { useGameStore } from "@/store/gameStore";
@@ -17,6 +36,9 @@ import { BackgroundGlass, Glass } from "./Glass";
 // floating beyond its edge. Each player's hand casts a ray along the phone's
 // top edge (hold it like a remote, top toward the laptop): the island it hits
 // grows, a tap on the phone selects it, and a second tap starts the game.
+
+/** Aim assist: an island already pointed at keeps the aim over this much bigger a sphere. */
+const STICKY = 1.75;
 
 /** Icons are modeled at about 2 m across; drawn this much larger so they read from the disc. */
 const ISLAND_SCALE = 1.35;
@@ -158,7 +180,9 @@ function IslandView({ island }: { island: Island }) {
  * One player's pointer: a ray from the hand along the phone's top edge,
  * drawn as a thin beam, tested against each island's hit sphere every frame.
  * The hovered island goes into the store only when it changes; a grip (tap)
- * rising edge selects whatever is hovered.
+ * rising edge selects whatever is hovered. Aim assist: the island already
+ * hovered holds on over a slightly bigger sphere, so the aim does not flicker
+ * off it at the edge. A player being calibrated neither points nor selects.
  */
 function Pointer({ slot }: { slot: PlayerSlot }) {
   const beam = useRef<Mesh>(null);
@@ -171,6 +195,7 @@ function Pointer({ slot }: { slot: PlayerSlot }) {
       best: new Vector3(),
       // Hit spheres at each island's rest position (the 0.15 m bob is well inside the radius).
       targets: ISLANDS.map((i) => new Sphere(islandCenter(i), ISLAND_HIT_RADIUS)),
+      sticky: ISLANDS.map((i) => new Sphere(islandCenter(i), ISLAND_HIT_RADIUS * STICKY)),
       up: new Vector3(0, 1, 0),
       prevGrip: false,
       geo: new CylinderGeometry(0.012, 0.012, 1, 8).translate(0, 0.5, 0),
@@ -180,20 +205,20 @@ function Pointer({ slot }: { slot: PlayerSlot }) {
 
   useFrame(() => {
     const h = rigs[slot];
-    const { hovered, selected } = useGameStore.getState();
+    const { hovered, selected, calibration } = useGameStore.getState();
     const b = beam.current;
     const d = dot.current;
     if (!b || !d) return;
 
     s.dir.set(0, 1, 0).applyQuaternion(h.handQuat);
     // Only aim while the phone is tipped toward the screen, not held upright at rest.
-    const aiming = h.live && s.dir.y < 0.75;
+    const aiming = h.live && s.dir.y < 0.75 && !calibration[slot];
     let target: IslandId | null = null;
     let length = 30;
     if (aiming) {
       s.ray.set(h.handPos, s.dir);
       ISLANDS.forEach((island, i) => {
-        if (s.ray.intersectSphere(s.targets[i], s.hit)) {
+        if (s.ray.intersectSphere(hovered[slot] === island.id ? s.sticky[i] : s.targets[i], s.hit)) {
           const dist = s.hit.distanceTo(h.handPos);
           if (dist < length) {
             length = dist;
@@ -222,7 +247,7 @@ function Pointer({ slot }: { slot: PlayerSlot }) {
     // Tap the phone (grip rising edge): select what you point at, tap it again
     // to play; tapping at nothing clears the selection.
     const grip = h.live && h.grip;
-    if (grip && !s.prevGrip) {
+    if (grip && !s.prevGrip && !calibration[slot]) {
       if (target && target === selected) enterGame(target);
       else if (target !== selected) useGameStore.setState({ selected: target });
     }
@@ -291,8 +316,70 @@ const DROPLETS: [number, number, number, number][] = [
   [10, 2.4, 3, 0.24],
 ];
 
+/**
+ * The backdrop: a few large, very faint shapes far out past the islands and
+ * the rings (45 to 70 m, inside the fog), turning and drifting slowly. They
+ * only lend the sky some depth: one shared pale material, low-poly, no
+ * shadows, and the fog fades them further.
+ */
+const BACKDROP: { shape: "torus" | "ico" | "octa" | "capsule"; at: [number, number, number]; size: number; spin: [number, number] }[] = [
+  { shape: "torus", at: [-34, 16, -52], size: 5, spin: [0.05, 0.03] },
+  { shape: "ico", at: [26, 20, -58], size: 4.5, spin: [0.03, 0.04] },
+  { shape: "octa", at: [-8, 26, -66], size: 4, spin: [0.04, -0.02] },
+  { shape: "capsule", at: [44, 11, -40], size: 3.5, spin: [-0.03, 0.05] },
+  { shape: "ico", at: [-50, 9, -34], size: 3.5, spin: [0.02, -0.04] },
+  { shape: "torus", at: [10, 13, -48], size: 3, spin: [-0.04, 0.02] },
+  { shape: "octa", at: [-24, 6, -62], size: 3, spin: [0.03, 0.03] },
+  { shape: "capsule", at: [-58, 21, -50], size: 4, spin: [0.02, 0.02] },
+  { shape: "ico", at: [56, 25, -60], size: 5, spin: [-0.02, 0.03] },
+];
+
+function Backdrop() {
+  const groups = useRef<(Group | null)[]>([]);
+  const r = useMemo(
+    () => ({
+      geo: {
+        torus: new TorusGeometry(1, 0.32, 16, 48),
+        ico: new IcosahedronGeometry(1, 0),
+        octa: new OctahedronGeometry(1, 0),
+        capsule: new CapsuleGeometry(0.45, 1.1, 6, 16),
+      } as Record<(typeof BACKDROP)[number]["shape"], BufferGeometry>,
+      mat: new MeshStandardMaterial({ color: "#ffffff", roughness: 0.25, metalness: 0, transparent: true, opacity: 0.08, depthWrite: false }),
+    }),
+    [],
+  );
+  useEffect(
+    () => () => {
+      Object.values(r.geo).forEach((g) => g.dispose());
+      r.mat.dispose();
+    },
+    [r],
+  );
+  useFrame((state) => {
+    const t = state.clock.elapsedTime;
+    BACKDROP.forEach((b, i) => {
+      const g = groups.current[i];
+      if (!g) return;
+      g.rotation.set(t * b.spin[0], t * b.spin[1], 0);
+      g.position.y = b.at[1] + Math.sin(t * 0.12 + i * 1.9) * 0.8;
+    });
+  });
+  return (
+    <group>
+      {BACKDROP.map((b, i) => (
+        <group key={i} ref={(g) => { groups.current[i] = g; }} position={b.at} scale={b.size * 0.8}>
+          <mesh geometry={r.geo[b.shape]} material={r.mat} renderOrder={-1} />
+        </group>
+      ))}
+    </group>
+  );
+}
+
 function Droplets() {
   const drops = useRef<(Mesh | null)[]>([]);
+  // One unit sphere for all of them, scaled to each droplet's size.
+  const dropGeo = useMemo(() => new SphereGeometry(1, 32, 20), []);
+  useEffect(() => () => dropGeo.dispose(), [dropGeo]);
   useFrame((state) => {
     const t = state.clock.elapsedTime;
     DROPLETS.forEach(([x, y, z], i) => {
@@ -303,8 +390,7 @@ function Droplets() {
   return (
     <group>
       {DROPLETS.map(([x, y, z, r], i) => (
-        <mesh key={i} ref={(m) => { drops.current[i] = m; }} position={[x, y, z]} castShadow>
-          <sphereGeometry args={[r, 32, 20]} />
+        <mesh key={i} ref={(m) => { drops.current[i] = m; }} position={[x, y, z]} scale={r} geometry={dropGeo} castShadow>
           <Glass ior={1.33} />
         </mesh>
       ))}
@@ -312,9 +398,20 @@ function Droplets() {
   );
 }
 
-/** The hub's fixed shot: behind and above the players, looking out over the islands. */
+/**
+ * The hub's shot: behind and above the players, looking out over the islands.
+ * Focus: while a player points at (or has picked) an island, the camera leans
+ * gently toward it and narrows a little.
+ */
 function HubView() {
-  useFrame(() => setView(0, 3.6, 8.6, 0, 1.7, -8, 42));
+  const s = useMemo(() => ({ centers: Object.fromEntries(ISLANDS.map((i) => [i.id, islandCenter(i)])) as Record<IslandId, Vector3>, look: new Vector3() }), []);
+  useFrame(() => {
+    const { selected, hovered } = useGameStore.getState();
+    const focus = selected ?? hovered[0] ?? hovered[1];
+    if (!focus) return setView(0, 3.6, 8.6, 0, 1.7, -8, 42);
+    s.look.set(0, 1.7, -8).lerp(s.centers[focus], 0.3);
+    setView(s.centers[focus].x * 0.08, 3.5, 8.3, s.look.x, s.look.y, s.look.z, 39);
+  });
   return null;
 }
 
@@ -331,7 +428,7 @@ export default function Hub({ players }: { players: PlayerSlot[] }) {
           blur={[400, 400]}
           mixBlur={1}
           mixStrength={0.2}
-          resolution={512}
+          resolution={256}
           mirror={0.5}
           depthScale={1.2}
           color="#ffffff"
@@ -340,6 +437,7 @@ export default function Hub({ players }: { players: PlayerSlot[] }) {
         />
       </mesh>
       <Nexus />
+      <Backdrop />
       <OrbitalRings />
       <Droplets />
       {ISLANDS.map((island) => (

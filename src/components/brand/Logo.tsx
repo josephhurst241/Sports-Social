@@ -1,19 +1,19 @@
 import { useId } from "react";
 
-// The Sports Social mark: two glass discs meeting, two players (or two balls)
-// with a lens where they overlap. Drawn in the theme's --accent-ink, so it
-// follows each scene's color, with a glass layer over it: a soft sheen across
-// the top, a thin bright edge, a light inner shadow at the bottom. The sheen
-// can sweep across (`sweep`, and on hover); globals.css has the keyframes.
-//
-// Two plain circles at heart, so it still reads at favicon size.
+// The Sports Social mark: a ping pong paddle and its ball, in glass. A solid
+// face and a short flared handle in a lighter tone, tipped so the handle
+// points down and left, with the ball up and to the right: simple equipment
+// that reads as sport even at favicon size. Drawn in the theme's
+// --accent-ink, so it follows each scene's color, with a glass layer: a soft
+// sheen across the face, a thin bright edge, a light inner shadow. A band of
+// light sweeps across (`sweep`, and on hover) and the ball catches a glint;
+// globals.css has the keyframes.
 
-/** Disc centers and radius in the 64 x 64 box. */
-const DISCS = [
-  { cx: 24, cy: 32 },
-  { cx: 40, cy: 32 },
-] as const;
-const R = 17;
+/** The face (an upright oval), the handle below it, the ball; the paddle is drawn upright, then tilted. */
+const FACE = { cx: 28, cy: 25, rx: 16.5, ry: 17.5 };
+const HANDLE = "M24.5 40.5 L31.5 40.5 L33 55 Q28 58.5 23 55 Z";
+const TILT = "rotate(32 28 34)";
+const BALL = { cx: 52, cy: 11, r: 6.5 };
 
 export default function Logo({
   size = 40,
@@ -25,7 +25,7 @@ export default function Logo({
   size?: number;
   /** "Sports Social" beside the mark. */
   wordmark?: boolean;
-  /** Run the sheen sweep once now (the startup animation). */
+  /** Run the glint once now (the startup animation). */
   sweep?: boolean;
   className?: string;
 }) {
@@ -39,21 +39,16 @@ export default function Logo({
       <svg width={size} height={size} viewBox="0 0 64 64" role="img" aria-label="Sports Social" className="shrink-0 overflow-visible">
         <defs>
           <clipPath id={clip}>
-            {DISCS.map((d) => (
-              <circle key={d.cx} cx={d.cx} cy={d.cy} r={R} />
-            ))}
+            <ellipse cx={FACE.cx} cy={FACE.cy} rx={FACE.rx} ry={FACE.ry} />
           </clipPath>
-          {/* Sheen: bright at the top, gone by the middle */}
           <linearGradient id={sheen} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0" style={{ stopColor: "#ffffff", stopOpacity: 0.75 }} />
+            <stop offset="0" style={{ stopColor: "#ffffff", stopOpacity: 0.55 }} />
             <stop offset="0.5" style={{ stopColor: "#ffffff", stopOpacity: 0 }} />
           </linearGradient>
-          {/* Inner shadow, low in the glass */}
-          <radialGradient id={shade} cx="0.5" cy="0.15" r="0.95">
+          <radialGradient id={shade} cx="0.4" cy="0.25" r="0.9">
             <stop offset="0.6" style={{ stopColor: "#000000", stopOpacity: 0 }} />
-            <stop offset="1" style={{ stopColor: "#000000", stopOpacity: 0.28 }} />
+            <stop offset="1" style={{ stopColor: "#000000", stopOpacity: 0.3 }} />
           </radialGradient>
-          {/* The sweeping band of light */}
           <linearGradient id={band} x1="0" y1="0" x2="1" y2="0">
             <stop offset="0" style={{ stopColor: "#ffffff", stopOpacity: 0 }} />
             <stop offset="0.5" style={{ stopColor: "#ffffff", stopOpacity: 0.85 }} />
@@ -61,22 +56,32 @@ export default function Logo({
           </linearGradient>
         </defs>
 
-        {/* The discs: the first solid, the second lighter glass, so the overlap reads as a deeper lens */}
-        <circle cx={DISCS[0].cx} cy={DISCS[0].cy} r={R} style={{ fill: "var(--accent-ink)" }} />
-        <circle cx={DISCS[1].cx} cy={DISCS[1].cy} r={R} style={{ fill: "var(--accent-ink)", fillOpacity: 0.55 }} />
-
-        {/* Glass layer */}
-        <g clipPath={`url(#${clip})`}>
-          <rect x="0" y="0" width="64" height="64" fill={`url(#${shade})`} />
-          <ellipse cx="32" cy="22" rx="30" ry="12" fill={`url(#${sheen})`} />
-          <g className={`logo-sweep ${sweep ? "logo-sweep-run" : ""}`}>
-            <rect x="-20" y="-8" width="18" height="80" transform="rotate(20 32 32)" fill={`url(#${band})`} />
+        <g transform={TILT}>
+          {/* Handle: lighter, like the wood under the rubber */}
+          <path d={HANDLE} style={{ fill: "var(--accent-ink)", fillOpacity: 0.45 }} />
+          <path d={HANDLE} fill="none" stroke="#ffffff" strokeOpacity={0.5} strokeWidth={0.8} />
+          {/* Face: solid, so it never reads as a lens */}
+          <ellipse cx={FACE.cx} cy={FACE.cy} rx={FACE.rx} ry={FACE.ry} style={{ fill: "var(--accent-ink)" }} />
+          <g clipPath={`url(#${clip})`}>
+            <rect x="0" y="0" width="64" height="64" fill={`url(#${shade})`} />
+            <ellipse cx={FACE.cx - 3} cy={FACE.cy - 9} rx={12} ry={6.5} fill={`url(#${sheen})`} />
+            <g className={`logo-sweep ${sweep ? "logo-sweep-run" : ""}`}>
+              <rect x="-22" y="-8" width="15" height="80" transform="rotate(20 28 25)" fill={`url(#${band})`} />
+            </g>
           </g>
+          <ellipse cx={FACE.cx} cy={FACE.cy} rx={FACE.rx - 0.75} ry={FACE.ry - 0.75} fill="none" stroke="#ffffff" strokeOpacity={0.55} strokeWidth={1} />
         </g>
-        {/* Thin bright edge, just inside each disc */}
-        {DISCS.map((d) => (
-          <circle key={d.cx} cx={d.cx} cy={d.cy} r={R - 0.75} fill="none" stroke="#ffffff" strokeOpacity={0.6} strokeWidth={1} />
-        ))}
+
+        {/* The ball: lighter glass, a bright point that glints */}
+        <circle cx={BALL.cx} cy={BALL.cy} r={BALL.r} style={{ fill: "var(--accent-ink)", fillOpacity: 0.5 }} />
+        <circle cx={BALL.cx} cy={BALL.cy} r={BALL.r - 0.6} fill="none" stroke="#ffffff" strokeOpacity={0.6} strokeWidth={0.9} />
+        <circle cx={BALL.cx - 2} cy={BALL.cy - 2.2} r={1.6} fill="#ffffff" fillOpacity={0.85} />
+        <g className={`logo-glint ${sweep ? "logo-glint-run" : ""}`} style={{ transformOrigin: `${BALL.cx - 2}px ${BALL.cy - 2.2}px` }}>
+          <path
+            d={`M${BALL.cx - 2} ${BALL.cy - 9} L${BALL.cx - 1.2} ${BALL.cy - 3} L${BALL.cx + 5} ${BALL.cy - 2.2} L${BALL.cx - 1.2} ${BALL.cy - 1.4} L${BALL.cx - 2} ${BALL.cy + 4.6} L${BALL.cx - 2.8} ${BALL.cy - 1.4} L${BALL.cx - 9} ${BALL.cy - 2.2} L${BALL.cx - 2.8} ${BALL.cy - 3} Z`}
+            fill="#ffffff"
+          />
+        </g>
       </svg>
       {wordmark && (
         <span className="text-[0.5em] leading-none font-semibold tracking-tight whitespace-nowrap text-ink">Sports Social</span>

@@ -3,14 +3,14 @@
 import { useFrame } from "@react-three/fiber";
 import { BallCollider, CuboidCollider, CylinderCollider, RigidBody, useRapier, type RapierRigidBody } from "@react-three/rapier";
 import { useEffect, useMemo, useRef } from "react";
-import { LatheGeometry, MathUtils, MeshPhysicalMaterial, MeshStandardMaterial, TorusGeometry, Vector2, Vector3 } from "three";
+import { LatheGeometry, MathUtils, MeshPhysicalMaterial, MeshStandardMaterial, TorusGeometry, Vector2, Vector3, type Mesh } from "three";
 import { placeRig, rigs } from "@/lib/game/rig";
+import { assistAim } from "@/lib/game/assist";
 import { setView } from "@/lib/game/view";
-import { PINS, isSplit, position, strikeStreak, totalScore } from "@/lib/games/bowling";
+import { PINS, position, totalScore } from "@/lib/games/bowling";
 import type { PlayerSlot } from "@/lib/net/protocol";
 import { sendResult } from "@/lib/net/host";
-import { narrate } from "@/lib/narrator/events";
-import { callout, nextTurn, playerName, useGameStore } from "@/store/gameStore";
+import { callout, feedback, nextTurn, playerName, useGameStore } from "@/store/gameStore";
 import Floor from "../Floor";
 import { BackgroundGlass } from "../Glass";
 
@@ -24,17 +24,34 @@ import { BackgroundGlass } from "../Glass";
 
 const LANE = { halfW: 0.525, start: 1.4, headPin: -14.5, end: -15.9 };
 const GUTTER = { inner: 0.525, outer: 0.78, depth: 0.06 };
-const BALL_R = 0.11;
+/** A little larger than a real ball (10.9 cm), so it carries more pins. */
+const BALL_R = 0.125;
 const RACK = new Vector3(0.95, 0.52, 0.85); // the ball waits on a pedestal beside the bowler
 const SETTLE_MS = 2200;
+/** The swing's pace is its fastest moment in this long before letting go (forgiving of an early release). */
+const SWING_WINDOW_MS = 500;
+/** Length of the aim line drawn on the lane, m. */
+const AIM_LINE = 3;
 const ROLL_TIMEOUT_MS = 9000;
 /** Ball speed = forward hand speed at release x this, within [MIN, MAX] m/s. */
 const BOWL_GAIN = 4.2;
-const BOWL_MIN = 2.2;
+const BOWL_MIN = 1.6;
 const BOWL_MAX = 10;
 /** The phone's heading turns the shot this much (a quarter), up to MAX_ANGLE. */
 const AIM_GAIN = 0.25;
 const MAX_ANGLE = 0.07;
+/** Aim assist: within this of the line to the headpin (radians), the aim is drawn most of the way to it. */
+const AIM_SNAP = 0.032;
+/** Where the ball is let go, along the lane. */
+const RELEASE_Z = -0.25;
+
+/** Where a bowler's ball would leave the hand and at what angle (+ = to the left), with aim assist toward the headpin. */
+function aimFor(r: { handPos: Vector3; heading: number }) {
+  const x = MathUtils.clamp(r.handPos.x, -0.42, 0.42);
+  const aimed = MathUtils.clamp(r.heading * AIM_GAIN, -MAX_ANGLE, MAX_ANGLE);
+  const toPin = Math.atan2(x, RELEASE_Z - LANE.headPin);
+  return { x, angle: toPin + assistAim(aimed - toPin, AIM_SNAP) };
+}
 /**
  * Each bowler's ball: a deep, polished shade of their color. Solid, not glass:
  * a clear ball took on the lane's color and vanished against it.
@@ -146,6 +163,7 @@ export default function Bowling() {
   const { rapier } = useRapier();
   const ball = useRef<RapierRigidBody>(null);
   const pins = useRef<(RapierRigidBody | null)[]>([]);
+  const aimLine = useRef<Mesh>(null);
   const res = useMemo(() => pinResources(), []);
   useEffect(() => () => Object.values(res).forEach((r) => r.dispose()), [res]);
   const turn = useGameStore((st) => st.bowling.turn);
@@ -218,8 +236,6 @@ export default function Bowling() {
     rolls[me] = [...g.rolls[me], knocked];
     const after = position(rolls[me]);
     const cleared = knocked === before.standing;
-    const fresh = before.standing === 10;
-    const name = playerName(me);
     const result =
       cleared && before.standing === 10 ? "Strike!" : cleared ? "Spare!" : knocked === 0 ? (bowl.inGutter ? "Gutter ball" : "Missed") : `${knocked} pin${knocked === 1 ? "" : "s"}`;
 
@@ -229,42 +245,33 @@ export default function Bowling() {
     const over = finished(turn);
     useGameStore.setState({ bowling: { ...g, rolls, turn, over } });
 
-    // The narrator: what this ball did, then the result or who bowls next.
-    if (cleared && fresh) {
-      const streak = strikeStreak(rolls[me]);
-      narrate(
-        streak >= 4
-          ? { type: "strikeStreak", name, count: streak }
-          : { type: streak === 3 ? "turkey" : streak === 2 ? "double" : "strike", name },
-      );
-    } else if (cleared) narrate({ type: "spare", name });
-    else if (bowl.inGutter) narrate({ type: "gutter", name });
-    else if (fresh && isSplit(bowl.standing.map((up, i) => up && !fallen(i)))) narrate({ type: "split", name });
     if (over) {
       const [a, b] = [totalScore(rolls[0]), totalScore(rolls[1])];
       // Each bowler's finished game, for their career (won: only with two bowlers).
       for (const p of g.players === 2 ? ([0, 1] as const) : [me]) {
         if (position(rolls[p]).over) sendResult(p, { game: "bowling", rolls: rolls[p], won: g.players === 2 ? (p === 0 ? a > b : b > a) : undefined });
       }
-      if (g.players === 1) narrate({ type: "matchEnd", game: "bowling", winner: name, score: `${totalScore(rolls[me])} points`, solo: true });
-      else narrate({ type: "matchEnd", game: "bowling", winner: a === b ? null : playerName(a > b ? 0 : 1), score: `${Math.max(a, b)}–${Math.min(a, b)}` });
-    } else {
-      const up = position(rolls[turn]);
-      if (up.frame === 9 && up.ball === 0) narrate({ type: "finalFrame", name: playerName(turn) });
-      else if (turn !== me) narrate({ type: "turn", game: "bowling", name: playerName(turn) });
     }
+
+    // Make or miss: a ripple at the pin deck for a strike or spare, where the ball passed for a zero.
+    const shot = cleared ? "make" : knocked === 0 ? "miss" : undefined;
+    if (shot === "make") feedback("make", 0, 0, LANE.headPin - 0.45);
+    else if (shot === "miss") feedback("miss", MathUtils.clamp(ball.current?.translation().x ?? 0, -0.7, 0.7), 0, LANE.headPin + 0.8);
 
     if (over) {
       const [a, b] = [totalScore(rolls[0]), totalScore(rolls[1])];
       callout(
         g.players === 1 ? `Game over · ${totalScore(rolls[me])}` : a === b ? `Tie game · ${a}` : `${playerName(a > b ? 0 : 1)} wins · ${Math.max(a, b)}–${Math.min(a, b)}`,
+        shot,
       );
       setPhase("over");
     } else {
-      callout(turn === me ? result : `${result} · ${playerName(turn)} is up`);
+      callout(turn === me ? result : `${result} · ${playerName(turn)} is up`, shot);
       if (turn !== me || after.standing === 10) bowl.standing.fill(true);
       else bowl.standing.forEach((up, i) => (bowl.standing[i] = up && !fallen(i)));
       if (turn !== me) giveTurn(turn);
+      // A new ball: the bowler's rest pose is taken again (lib/game/rig.ts neutralSeq).
+      else rigs[me].neutralSeq++;
       setPhase("ready");
     }
     rack(bowl.standing);
@@ -279,8 +286,10 @@ export default function Bowling() {
     // Only the bowler whose turn it is controls the ball.
     const r0 = rigs[g.turn];
     const grip = r0.live && r0.grip;
-    const pressed = grip && !bowl.prevGrip;
-    const released = !grip && bowl.prevGrip;
+    // While the bowler is calibrating, their swings are for calibration only.
+    const calibrating = !!useGameStore.getState().calibration[g.turn];
+    const pressed = !calibrating && grip && !bowl.prevGrip;
+    const released = !calibrating && !grip && bowl.prevGrip;
     bowl.prevGrip = grip;
     const t = rb.translation();
 
@@ -312,10 +321,11 @@ export default function Bowling() {
       s.v.copy(r0.handPos).addScaledVector(s.down, BALL_R + 0.03);
       rb.setNextKinematicTranslation(s.v);
       bowl.history.push({ t: now, v: -r0.handVel.z });
-      while (bowl.history.length && now - bowl.history[0].t > 350) bowl.history.shift();
+      while (bowl.history.length && now - bowl.history[0].t > SWING_WINDOW_MS) bowl.history.shift();
       if (released) {
         const peak = Math.max(0, ...bowl.history.map((h) => h.v));
-        const speed = peak * BOWL_GAIN;
+        // The calibrated swing: a player's normal swing is a medium ball.
+        const speed = peak * BOWL_GAIN * (r0.games.bowling?.swing ?? 1) * r0.sens.swing;
         bowl.lastSpeed = speed;
         if (speed < BOWL_MIN) {
           callout("Swing forward, then let go");
@@ -323,9 +333,9 @@ export default function Bowling() {
           setPhase("ready");
         } else {
           const v = Math.min(BOWL_MAX, speed);
-          const angle = MathUtils.clamp(r0.heading * AIM_GAIN, -MAX_ANGLE, MAX_ANGLE);
+          const { x, angle } = aimFor(r0);
           rb.setBodyType(rapier.RigidBodyType.Dynamic, true);
-          rb.setTranslation({ x: MathUtils.clamp(r0.handPos.x, -0.42, 0.42), y: BALL_R + 0.003, z: -0.25 }, true);
+          rb.setTranslation({ x, y: BALL_R + 0.003, z: RELEASE_Z }, true);
           rb.setLinvel({ x: -Math.sin(angle) * v, y: 0, z: -Math.cos(angle) * v }, true);
           rb.setAngvel({ x: -v / BALL_R, y: 0, z: 0 }, true);
           bowl.stillSince = 0;
@@ -345,10 +355,25 @@ export default function Bowling() {
       finishRoll();
     }
 
+    // Aim line on the lane while lining up: where the ball would go if let go now.
+    const line = aimLine.current;
+    if (line) {
+      line.visible = bowl.phase === "ready" || bowl.phase === "holding";
+      if (line.visible) {
+        const { x, angle } = aimFor(r0);
+        line.position.set(x - Math.sin(angle) * AIM_LINE / 2, 0.004, RELEASE_Z - Math.cos(angle) * AIM_LINE / 2);
+        line.rotation.set(-Math.PI / 2, 0, angle);
+      }
+    }
+
     // Camera: behind the bowler, then down the lane with the ball.
     if (bowl.phase === "rolling" || bowl.phase === "settling") {
       const z = MathUtils.clamp(t.z + 4.4, -10.4, 3.9);
       setView(0.5, 1.8, z, 0, 0.2, Math.min(t.z - 4, LANE.headPin), 40);
+    } else if (bowl.phase === "holding") {
+      // Focus: with the ball in hand the camera eases in low behind the bowler, down their line.
+      const bx = r0.root.x;
+      setView(bx + 0.55, 1.6, 2.7, bx * 0.3, 0.15, -11, 34);
     } else {
       // Behind and right of the bowler, high enough to see the whole lane.
       setView(1.1, 2.5, 5.0, 0, 0.2, -10, 40);
@@ -359,6 +384,10 @@ export default function Bowling() {
     <>
       <Floor y={-0.02} z={-5} />
       <Lane />
+      <mesh ref={aimLine} visible={false}>
+        <planeGeometry args={[0.02, AIM_LINE]} />
+        <meshBasicMaterial color="#ffffff" transparent opacity={0.6} depthWrite={false} />
+      </mesh>
       {PIN_SPOTS.map(([x, z], i) => (
         <RigidBody
           key={i}

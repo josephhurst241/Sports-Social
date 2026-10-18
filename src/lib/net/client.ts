@@ -60,6 +60,8 @@ export async function connectToHost(code: string): Promise<ClientLink> {
       useGameStore.setState({ clientTurn: msg.slot });
     } else if (msg.t === "names") {
       useGameStore.setState({ clientNames: msg.names });
+    } else if (msg.t === "calibration") {
+      useGameStore.setState({ clientCalibration: msg.state });
     } else if (msg.t === "result") {
       useGameStore.setState({ clientResult: { result: msg.result, at: performance.now() } });
     } else if (msg.t === "full") {

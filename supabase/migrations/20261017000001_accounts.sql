@@ -9,7 +9,7 @@
 --
 -- Run in the Supabase SQL editor, or `supabase db push`.
 
--- Display names. Readable by everyone (they appear on leaderboards); each
+-- Display names. Readable by everyone (the other player sees them); each
 -- player may change only their own.
 create table public.profiles (
   id uuid primary key references auth.users on delete cascade,
@@ -130,7 +130,7 @@ begin
       raise exception 'not a golf card';
     end if;
     v_score := (select sum(s) from unnest(strokes) s) - (select sum(p) from unnest(pars) p);
-    -- Only a full round counts for the leaderboard.
+    -- Only a full round counts as a best round.
     v_details := v_details || jsonb_build_object('complete', array_length(strokes, 1) = (p_details->>'holes')::int);
   elsif p_game = 'pingpong' then
     own := (p_details->'score'->>0)::int;

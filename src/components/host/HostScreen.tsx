@@ -11,15 +11,17 @@ import { scorecard, totalScore } from "@/lib/games/bowling";
 import { HOLES, PAR } from "@/lib/games/golf";
 import { POINTS_TO_WIN } from "@/lib/games/pingpong";
 import { startHost } from "@/lib/net/host";
-import { setNarrator, startNarrator } from "@/lib/narrator/narrator";
+import { startCalibration } from "@/lib/game/calibrating";
+import CalDiagram from "@/components/CalDiagram";
+import { CAL_TEXT, REPS_MIN } from "@/lib/game/calibration";
 import { ISLANDS } from "@/lib/hub/islands";
-import { BOARDS, HUB_BOARD, loadLeaderboard, type Board, type RankRow } from "@/lib/account/leaderboard";
-import { supabase } from "@/lib/account/account";
 import { PLAYER_COLORS, type PlayerSlot } from "@/lib/net/protocol";
-import { requestRecenter, useGameStore, usePlayerName } from "@/store/gameStore";
+import { requestRecenter, useGameStore, usePlayerName, useSplit } from "@/store/gameStore";
 
 /** Where the laptop remembers the glass look between visits. */
 const GLASS_KEY = "sports-social-glass";
+/** Where the laptop remembers whether sound effects are on. */
+const SOUND_KEY = "sports-social-sound";
 
 // The 3D scene touches WebGL and window, so it never renders on the server.
 const Stage = dynamic(() => import("@/components/three/Stage"), { ssr: false });
@@ -79,11 +81,14 @@ function PlayerChip({ slot }: { slot: PlayerSlot }) {
   const connected = useGameStore((s) => s.players[slot].connected);
   const name = usePlayerName(slot);
   const rate = usePacketRate(slot);
+  const { games, wins } = useGameStore((s) => s.session[slot]);
+  // This session's record once they have finished a game; until then the connection rate.
+  const detail = !connected ? "Waiting" : games ? `${games} played · ${wins} won` : `${rate} Hz`;
   return (
     <div className="panel flex items-center gap-3 rounded-full py-2.5 pr-5 pl-3.5">
       <Dot color={connected ? PLAYER_COLORS[slot] : "#d1d1d6"} />
       <span className="max-w-[12em] truncate text-[15px] font-semibold">{name}</span>
-      <span className="tabular text-[13px] text-ink-3">{connected ? `${rate} Hz` : "Waiting"}</span>
+      <span className="tabular text-[13px] text-ink-3">{detail}</span>
     </div>
   );
 }
@@ -138,80 +143,6 @@ function RoomBadge({ code, url }: { code: string; url: string | null }) {
   );
 }
 
-/** Leaderboards already fetched, per board, so pointing back and forth does not refetch. */
-const boardCache = new Map<string, { at: number; week: RankRow[]; all: RankRow[]; error: string | null }>();
-const BOARD_FRESH_MS = 60_000;
-
-/**
- * The hub's leaderboard: whichever game is pointed at or selected, this
- * week's and all-time top three side by side, with the players here marked in
- * their color. It sits in the sky under the brand, clear of the islands, and
- * only when accounts are set up (no board without Supabase keys).
- */
-function HubLeaderboard() {
-  const game = useGameStore((s) => s.selected ?? s.hovered[0] ?? s.hovered[1]);
-  // Two selectors, not one returning a fresh array (that would re-render forever).
-  const id0 = useGameStore((s) => s.players[0].account?.id ?? null);
-  const id1 = useGameStore((s) => s.players[1].account?.id ?? null);
-  const ids = [id0, id1];
-  const [, redraw] = useState(0);
-  const board: Board | null = game ? HUB_BOARD[game] : null;
-  useEffect(() => {
-    if (!board || !supabase()) return;
-    const hit = boardCache.get(board);
-    if (hit && performance.now() - hit.at < BOARD_FRESH_MS) return;
-    Promise.all([loadLeaderboard(board, "week", 3), loadLeaderboard(board, "all", 3)]).then(([week, all]) => {
-      boardCache.set(board, { at: performance.now(), week: week.rows, all: all.rows, error: week.error ?? all.error });
-      redraw((n) => n + 1);
-    });
-  }, [board]);
-  if (!board || !supabase()) return null;
-  const data = boardCache.get(board);
-  const info = BOARDS[board];
-  const section = (title: string, rows: RankRow[]) => (
-    <div className="min-w-0">
-      <div className="text-[12px] font-semibold text-accent-ink">{title}</div>
-      {rows.length === 0 ? (
-        <div className="mt-1 text-[13px] text-ink-3">Nobody yet</div>
-      ) : (
-        <ol className="mt-1">
-          {rows.map((r) => {
-            const here = ids.indexOf(r.user_id);
-            return (
-              <li key={r.user_id} className={`flex items-center gap-2 rounded-lg px-1.5 py-0.5 text-[13px] ${here >= 0 ? "bg-accent/25 font-semibold" : ""}`}>
-                <span className="tabular w-4 text-right text-ink-3">{r.rank}</span>
-                {here >= 0 && <Dot color={PLAYER_COLORS[here]} />}
-                <span className="flex-1 truncate">{r.name}</span>
-                <span className="tabular font-semibold">{info.format(r.value)}</span>
-              </li>
-            );
-          })}
-        </ol>
-      )}
-    </div>
-  );
-  return (
-    <div className="panel w-[25rem] rounded-3xl px-5 py-3.5">
-      <div className="flex items-baseline justify-between gap-3">
-        <div className="text-[15px] font-semibold tracking-tight">
-          {info.title} <span className="font-normal text-ink-2">· {info.measure}</span>
-        </div>
-        <div className="text-[11px] whitespace-nowrap text-ink-3">Sign in on your phone to be ranked</div>
-      </div>
-      {!data ? (
-        <div className="mt-2 text-[13px] text-ink-3">Loading…</div>
-      ) : data.error ? (
-        <div className="mt-2 text-[13px] text-ink-3">Leaderboard unavailable</div>
-      ) : (
-        <div className="mt-2 grid grid-cols-2 gap-4">
-          {section("This week", data.week)}
-          {section("All time", data.all)}
-        </div>
-      )}
-    </div>
-  );
-}
-
 /** The game a player tapped in the hub, named in that game's color; a second tap starts it. */
 function Selection() {
   const selected = useGameStore((s) => s.selected);
@@ -234,69 +165,157 @@ function Selection() {
 }
 
 /**
- * The latest point, roll or stroke for a moment, and under it the narrator's
- * line as a subtitle. Inverted, so it reads apart from the HUD above it.
+ * The latest point, roll or stroke for a moment. Inverted, so it reads apart
+ * from the HUD above it. A make gives it a little pop, a miss a small shake.
  */
 function Callout() {
   const callout = useGameStore((s) => s.callout);
-  const subtitle = useGameStore((s) => s.subtitle);
-  const [fresh, setFresh] = useState(false);
+  const [visible, setVisible] = useState(false);
   useEffect(() => {
-    if (!callout) return setFresh(false);
-    setFresh(true);
-    const id = setTimeout(() => setFresh(false), 1800);
+    if (!callout) return setVisible(false);
+    setVisible(true);
+    const id = setTimeout(() => setVisible(false), 1800);
     return () => clearTimeout(id);
   }, [callout]);
-  const text = fresh ? callout?.text : undefined;
-  // The narrator often says just what the callout shows ("Strike!"): no need to repeat it.
-  const sub = subtitle && subtitle.text !== text ? subtitle.text : undefined;
-  const visible = !!(text || sub);
-  // Keep the last words on the panel while it fades out.
-  const [kept, setKept] = useState<{ text?: string; sub?: string }>({});
-  useEffect(() => {
-    if (text || sub) setKept({ text, sub });
-  }, [text, sub]);
-  const show = visible ? { text, sub } : kept;
   return (
     <div
-      className="panel-ink max-w-[min(90vw,680px)] rounded-[26px] px-7 py-3 text-center transition-all duration-300"
+      className="panel-ink max-w-[min(90vw,680px)] rounded-full px-7 py-3 text-center text-[22px] font-semibold tracking-tight transition-all duration-300"
       style={{ opacity: visible ? 1 : 0, transform: visible ? "none" : "translateY(-6px)" }}
     >
-      {show.text && <div className="text-[22px] font-semibold tracking-tight">{show.text}</div>}
-      {show.sub && <div className={show.text ? "mt-0.5 text-[15px] text-white/80" : "text-[17px] font-medium"}>{show.sub}</div>}
-      {!show.text && !show.sub && " "}
+      <div key={callout?.at} className={callout?.kind === "make" ? "callout-make" : callout?.kind === "miss" ? "callout-miss" : undefined}>
+        {callout?.text ?? "\u00a0"}
+      </div>
     </div>
   );
 }
 
-/** The narrator's mute and volume (N mutes too). */
-function NarratorControl() {
-  const { muted, volume } = useGameStore((s) => s.narrator);
-  const off = muted || volume === 0;
+/** Switches the glass look and remembers it (G does the same). */
+function setGlass(glassStyle: "classic" | "liquid") {
+  useGameStore.setState({ glassStyle });
+  try {
+    localStorage.setItem(GLASS_KEY, glassStyle);
+  } catch {}
+}
+
+/** Split-screen ping pong: a hairline between the halves, and whose view each half is. */
+function SplitOverlay() {
+  const cpu = useGameStore((s) => s.pingpong.cpu);
+  const [n0, p2] = [usePlayerName(0), usePlayerName(1)];
+  const n1 = cpu ? "CPU" : p2;
   return (
-    <div className="panel pointer-events-auto flex items-center gap-2 rounded-full py-1.5 pr-4 pl-1.5">
-      <button
-        onClick={() => setNarrator({ muted: !muted })}
-        aria-label={off ? "Unmute the narrator" : "Mute the narrator"}
-        title="Narrator (N)"
-        className="flex h-8 w-8 items-center justify-center rounded-full text-accent-ink hover:bg-accent/20"
-      >
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-          <path d="M4 9v6h4l5 4V5L8 9H4z" fill="currentColor" />
-          {off ? <path d="M17 9l5 6M22 9l-5 6" /> : <path d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12" />}
-        </svg>
-      </button>
-      <input
-        type="range"
-        min={0}
-        max={1}
-        step={0.05}
-        value={volume}
-        disabled={muted}
-        onChange={(e) => setNarrator({ volume: Number(e.target.value) })}
-        aria-label="Narrator volume"
-        className="w-24 accent-[var(--accent-ink)] disabled:opacity-40"
-      />
+    <div className="pointer-events-none absolute inset-0">
+      <div className="absolute inset-y-0 left-1/2 w-px bg-white/70 shadow-[0_0_0_1px_rgb(0_0_0/0.05)]" />
+      {([n0, n1] as const).map((name, i) => (
+        <div key={i} className={`absolute top-1/2 ${i === 0 ? "left-6" : "right-6"}`}>
+          <div className="panel flex items-center gap-2 rounded-full py-1.5 pr-3.5 pl-2.5 text-[13px] font-semibold">
+            <Dot color={PLAYER_COLORS[i]} />
+            {name}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Turns sound effects on or off and remembers it. */
+function setSound(sound: boolean) {
+  useGameStore.setState({ sound });
+  try {
+    localStorage.setItem(SOUND_KEY, sound ? "on" : "off");
+  } catch {}
+}
+
+/** A two-option switch in the settings panel. */
+function Choice<T extends string>({ value, options, onChange }: { value: T; options: [T, string][]; onChange: (v: T) => void }) {
+  return (
+    <div className="flex rounded-full bg-black/[0.06] p-0.5 text-[13px] font-semibold">
+      {options.map(([v, label]) => (
+        <button key={v} onClick={() => onChange(v)} className={`rounded-full px-3 py-1 ${value === v ? "bg-white text-ink shadow-[0_0_0_1px_rgb(0_0_0/0.06)]" : "text-ink-2"}`}>
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * The laptop's settings, behind the gear: sound, the glass look (G does the
+ * same), and calibrating a Motion player again.
+ */
+function SettingsPanel({ onClose }: { onClose: () => void }) {
+  const sound = useGameStore((s) => s.sound);
+  const glass = useGameStore((s) => s.glassStyle);
+  const scene = useGameStore((s) => s.scene);
+  const players = useGameStore((s) => s.players);
+  const modes = useGameStore((s) => s.inputModes);
+  const calibrating = useGameStore((s) => s.calibration);
+  const [n0, n1] = [usePlayerName(0), usePlayerName(1)];
+  const row = "flex items-center justify-between gap-6 py-2.5";
+  return (
+    <div className="panel pointer-events-auto w-80 rounded-3xl px-5 py-3 text-left">
+      <div className="flex items-center justify-between py-1.5">
+        <div className="text-[15px] font-semibold">Settings</div>
+        <button className="text-[13px] font-semibold text-accent-ink" onClick={onClose}>
+          Done
+        </button>
+      </div>
+      <div className={row}>
+        <span className="text-[14px]">Sound effects</span>
+        <Choice value={sound ? "on" : "off"} options={[["on", "On"], ["off", "Off"]]} onChange={(v) => setSound(v === "on")} />
+      </div>
+      <div className={row}>
+        <span className="text-[14px]">Glass</span>
+        <Choice value={glass} options={[["classic", "Classic"], ["liquid", "Liquid"]]} onChange={setGlass} />
+      </div>
+      <div className="border-t border-black/[0.06] pt-2 pb-1">
+        <div className="text-[12px] font-semibold text-accent-ink">Calibrate motion</div>
+        {([0, 1] as const).map((slot) => {
+          if (!players[slot].connected) return null;
+          const ok = modes[slot] === "motion" && scene !== "hub" && !calibrating[slot];
+          return (
+            <div key={slot} className={row}>
+              <span className="truncate text-[14px]">{slot === 0 ? n0 : n1}</span>
+              <button
+                className="rounded-full bg-accent-ink px-3 py-1 text-[13px] font-semibold text-white disabled:opacity-35"
+                disabled={!ok}
+                title={modes[slot] !== "motion" ? "Playing with Buttons" : scene === "hub" ? "Start a game first" : undefined}
+                onClick={() => scene !== "hub" && startCalibration(slot, scene)}
+              >
+                Calibrate
+              </button>
+            </div>
+          );
+        })}
+        {!players[0].connected && !players[1].connected && <div className="py-2 text-[13px] text-ink-3">No phones connected</div>}
+      </div>
+    </div>
+  );
+}
+
+/** Each player's calibration, step by step, while it runs. */
+function CalibrationPanel({ slot }: { slot: PlayerSlot }) {
+  const view = useGameStore((s) => s.calibration[slot]);
+  const name = usePlayerName(slot);
+  if (!view) return null;
+  return (
+    <div className="panel w-80 rounded-3xl px-5 py-3 text-center">
+      <div className="flex items-center justify-center gap-2 text-[12px] font-semibold text-accent-ink">
+        <Dot color={PLAYER_COLORS[slot]} />
+        {name} · Calibrating motion
+      </div>
+      {view.step !== "done" && <CalDiagram game={view.game} step={view.step} size={120} />}
+      <div className="mt-1 text-[20px] font-semibold tracking-tight">{CAL_TEXT[view.game][view.step].title}</div>
+      <div className="mt-0.5 text-[13px] leading-snug text-ink-2">
+        {view.waiting ? `Waiting for ${name} to tap Ready on their phone.` : CAL_TEXT[view.game][view.step].hint}
+      </div>
+      {view.step !== "done" && !view.waiting && (
+        <div className="mx-auto mt-2.5 h-1.5 w-40 overflow-hidden rounded-full bg-black/10">
+          <div
+            className="h-full rounded-full bg-accent-ink transition-[width] duration-150"
+            style={{ width: `${(view.step === "action" ? view.reps / Math.max(REPS_MIN, view.reps + view.needed) : view.progress) * 100}%` }}
+          />
+        </div>
+      )}
     </div>
   );
 }
@@ -412,17 +431,17 @@ function GolfHud() {
 }
 
 const BUTTON_HINTS: Record<string, [string, string]> = {
-  hub: ["On the phone: ‹ › to aim at a game, Select to choose, Select again to play.", "Switch the phone to Motion any time."],
+  hub: ["On the phone: ‹ › to aim at a game, Select to choose, Select again to play.", "Motion controls and calibration: the phone's Settings."],
   pingpong: ["Hold Swing to wind up, let go to swing. The first press serves.", "‹ Hub on the phone, or Esc, goes back to the hub."],
   bowling: ["‹ › to aim. Hold Bowl to wind up (longer is faster), let go to bowl.", "‹ Hub on the phone, or Esc, goes back to the hub."],
   golf: ["‹ › to aim. Hold Putt to wind up (longer is further), let go to putt.", "‹ Hub on the phone, or Esc, goes back to the hub."],
 };
 
 const HINTS: Record<string, [string, string]> = {
-  hub: ["Point the top of your phone at a game. Tap to select, tap again to play.", "Hold it upright to rest. R or a two-finger tap recenters. G switches the glass. N mutes the narrator."],
+  hub: ["Point the top of your phone at a game. Tap to select, tap again to play.", "Hold it upright to rest. R or a two-finger tap recenters. Settings: top right."],
   pingpong: ["Hold the phone like a paddle, screen facing the table. Swing to hit, tap to serve.", "Esc or a three-finger tap: back to the hub."],
-  bowling: ["Hold the screen to pick up the ball, swing underhand, let go to bowl. Turn the phone to angle it.", "Esc or a three-finger tap: back to the hub."],
-  golf: ["Hold the phone upright like a putter grip. Hold the screen, swing, let go to putt. Turn it to aim.", "Esc or a three-finger tap: back to the hub."],
+  bowling: ["Hold the phone however is comfortable. Hold the screen to pick up the ball, swing, let go to bowl. Turn it to angle the shot.", "Esc or a three-finger tap: back to the hub."],
+  golf: ["Hold the phone however is comfortable. Hold the screen, swing, let go to putt. Turn it to aim.", "Esc or a three-finger tap: back to the hub."],
 };
 
 export default function HostScreen({ lanIp }: { lanIp: string | null }) {
@@ -432,6 +451,8 @@ export default function HostScreen({ lanIp }: { lanIp: string | null }) {
   const scene = useGameStore((s) => s.scene);
   const anyone = useGameStore((s) => s.players[0].connected || s.players[1].connected);
   const url = useJoinUrl(lanIp, code);
+  const split = useSplit();
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   // One host per page load. The cancelled flag covers an unmount that lands
   // before the broker answers, so a remount can never leave two rooms open.
@@ -448,25 +469,19 @@ export default function HostScreen({ lanIp }: { lanIp: string | null }) {
     };
   }, []);
 
-  // The narrator: listens for game events for as long as the page is open.
-  useEffect(() => startNarrator(), []);
-
-  // R recenters every phone's heading; Esc leaves a game; G switches the glass look; N mutes the narrator.
+  // R recenters every phone's heading; Esc leaves a game; G switches the glass look.
   useEffect(() => {
     const saved = localStorage.getItem(GLASS_KEY);
     if (saved === "classic" || saved === "liquid") useGameStore.setState({ glassStyle: saved });
+    if (localStorage.getItem(SOUND_KEY) === "off") useGameStore.setState({ sound: false });
     const onKey = (e: KeyboardEvent) => {
       if (e.code === "KeyR") {
         requestRecenter(0);
         requestRecenter(1);
       } else if (e.code === "Escape") {
         exitToHub();
-      } else if (e.code === "KeyN") {
-        setNarrator({ muted: !useGameStore.getState().narrator.muted });
       } else if (e.code === "KeyG") {
-        const glassStyle = useGameStore.getState().glassStyle === "liquid" ? "classic" : "liquid";
-        useGameStore.setState({ glassStyle });
-        localStorage.setItem(GLASS_KEY, glassStyle);
+        setGlass(useGameStore.getState().glassStyle === "liquid" ? "classic" : "liquid");
       }
     };
     window.addEventListener("keydown", onKey);
@@ -480,6 +495,7 @@ export default function HostScreen({ lanIp }: { lanIp: string | null }) {
       <div className="absolute inset-0">
         <Stage />
       </div>
+      {split && <SplitOverlay />}
 
       <header className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between gap-6 p-8">
         {/* The brand, on a panel like all text over the scene; the handshake card carries it while that is up */}
@@ -496,6 +512,8 @@ export default function HostScreen({ lanIp }: { lanIp: string | null }) {
           {scene === "bowling" && <BowlingHud />}
           {scene === "golf" && <GolfHud />}
           <Callout />
+          <CalibrationPanel slot={0} />
+          <CalibrationPanel slot={1} />
           {/* Stacked under the callout, not pinned over it */}
           {!anyone && scene !== "hub" && (
             <div className="panel rounded-full px-6 py-3 text-[15px] text-ink-2">
@@ -503,7 +521,23 @@ export default function HostScreen({ lanIp }: { lanIp: string | null }) {
             </div>
           )}
         </div>
-        {anyone && code ? <RoomBadge code={code} url={url} /> : <div />}
+        <div className="flex flex-col items-end gap-3">
+          <div className="flex items-start gap-3">
+            {anyone && code && <RoomBadge code={code} url={url} />}
+            <button
+              aria-label="Settings"
+              onClick={() => setSettingsOpen((o) => !o)}
+              className="panel pointer-events-auto flex h-11 w-11 items-center justify-center rounded-full text-ink-2 hover:text-ink"
+            >
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
+                <path d="M4 7h10M18 7h2M4 17h2M10 17h10" />
+                <circle cx="16" cy="7" r="2" />
+                <circle cx="8" cy="17" r="2" />
+              </svg>
+            </button>
+          </div>
+          {settingsOpen && <SettingsPanel onClose={() => setSettingsOpen(false)} />}
+        </div>
       </header>
 
       {!anyone && scene === "hub" && (
@@ -517,17 +551,10 @@ export default function HostScreen({ lanIp }: { lanIp: string | null }) {
         </div>
       )}
 
-      {anyone && scene === "hub" && (
-        <div className="pointer-events-none absolute top-28 left-8">
-          <HubLeaderboard />
-        </div>
-      )}
-
       <footer className="pointer-events-none absolute inset-x-0 bottom-0 flex items-end justify-between gap-6 p-8">
         <div className="flex gap-3">
           <PlayerChip slot={0} />
           <PlayerChip slot={1} />
-          <NarratorControl />
         </div>
         {/* On a panel, not bare: the fogged floor and glass behind would wash out loose grey text. */}
         {anyone && (

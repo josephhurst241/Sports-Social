@@ -1,4 +1,6 @@
 import { create } from "zustand";
+import type { CalView } from "@/lib/game/calibration";
+import { emptySession, type SessionStats } from "@/lib/games/session";
 import type { IslandId } from "@/lib/hub/islands";
 import { P, PACKET_FLOATS, PLAYER_NAMES, type GameResult, type PlayerSlot } from "@/lib/net/protocol";
 
@@ -14,6 +16,13 @@ import { P, PACKET_FLOATS, PLAYER_NAMES, type GameResult, type PlayerSlot } from
 //    getState() inside useFrame. No allocation per packet, no React re-render.
 
 export type SceneId = "hub" | IslandId;
+
+/** A shot that went in (make) or did not (miss), and where. */
+export interface Feedback {
+  kind: "make" | "miss";
+  at: [number, number, number];
+  seq: number;
+}
 
 export type HostStatus = "idle" | "opening" | "ready" | "error";
 export type ClientStatus = "idle" | "permission" | "connecting" | "connected" | "full" | "closed" | "error";
@@ -50,6 +59,10 @@ interface GameState {
   roomCode: string | null;
   hostError: string | null;
   players: [PlayerConn, PlayerConn];
+  /** Each player's motion calibration in progress (lib/game/calibrating.ts), or null. */
+  calibration: [CalView | null, CalView | null];
+  /** Each player's record this session (memory only; cleared when they leave). */
+  session: [SessionStats, SessionStats];
   /** Each phone's input, for the laptop's hints (the per-packet flag lives on telemetry.virtual). */
   inputModes: ["motion" | "buttons", "motion" | "buttons"];
 
@@ -68,11 +81,11 @@ interface GameState {
   /** The glass look: the prototype's "classic" glass or the glossier "liquid" glass. G on the laptop switches it. */
   glassStyle: "classic" | "liquid";
   /** Short message after a point, roll or stroke, with when it was set. */
-  callout: { text: string; at: number } | null;
-  /** The narrator's line being spoken, shown under the callout. */
-  subtitle: { text: string; at: number } | null;
-  /** The narrator's voice: N on the laptop mutes it (remembered in localStorage). */
-  narrator: { muted: boolean; volume: number };
+  callout: { text: string; at: number; kind?: Feedback["kind"] } | null;
+  /** The latest make or miss, where it happened (world, m): the scene ripples there (Feedback.tsx). */
+  feedback: Feedback | null;
+  /** Sound effects (the logo's chime) on or off: the laptop's Settings (remembered in localStorage). */
+  sound: boolean;
 
   // Hub
   hovered: [IslandId | null, IslandId | null];
@@ -93,6 +106,8 @@ interface GameState {
   clientTurn: PlayerSlot | null;
   /** Phone side: what each player is called, from the laptop. */
   clientNames: [string, string];
+  /** Phone side: this player's calibration in progress, from the laptop. */
+  clientCalibration: CalView | null;
   /** Phone side: this player's last finished game, to save to their career. */
   clientResult: { result: GameResult; at: number } | null;
 
@@ -114,6 +129,8 @@ export const useGameStore = create<GameState>()(() => ({
     { connected: false, peerId: null, account: null },
     { connected: false, peerId: null, account: null },
   ],
+  calibration: [null, null],
+  session: [emptySession(), emptySession()],
   inputModes: ["buttons", "buttons"],
   clientStatus: "idle",
   clientError: null,
@@ -123,8 +140,8 @@ export const useGameStore = create<GameState>()(() => ({
   introGlide: false,
   glassStyle: "classic",
   callout: null,
-  subtitle: null,
-  narrator: { muted: false, volume: 0.9 },
+  feedback: null,
+  sound: true,
   hovered: [null, null],
   selected: null,
   pingpong: { score: [0, 0], rally: 0, cpu: true },
@@ -134,6 +151,7 @@ export const useGameStore = create<GameState>()(() => ({
   clientTurn: null,
   clientNames: [PLAYER_NAMES[0], PLAYER_NAMES[1]],
   clientResult: null,
+  clientCalibration: null,
   telemetry: [makeTelemetry(), makeTelemetry()],
 }));
 
@@ -182,16 +200,25 @@ export function nextTurn(slot: PlayerSlot, players: 1 | 2, finished: (p: PlayerS
   return players === 2 && useGameStore.getState().players[other].connected && !finished(other) ? other : slot;
 }
 
-/** What to call a player: their account name, else Player 1/2. For callouts, the narrator and the HUD. */
+/** What to call a player: their account name, else Player 1/2. For callouts and the HUD. */
 export function playerName(slot: PlayerSlot) {
   return useGameStore.getState().players[slot].account?.name ?? PLAYER_NAMES[slot];
 }
 
+/** Ping pong is always shown split, one half per player (the CPU's too): PingPongScene, HostScreen. */
+export const useSplit = () => useGameStore((s) => s.scene === "pingpong");
+
 /** playerName as a React hook, so labels update when a player signs in. */
 export const usePlayerName = (slot: PlayerSlot) => useGameStore((s) => s.players[slot].account?.name ?? PLAYER_NAMES[slot]);
 
-export function callout(text: string) {
-  useGameStore.setState({ callout: { text, at: performance.now() } });
+/** A short message after a point, roll or stroke; a make or miss gives it a little pop or shake. */
+export function callout(text: string, kind?: Feedback["kind"]) {
+  useGameStore.setState({ callout: { text, at: performance.now(), kind } });
+}
+
+/** A make or a miss, at a point in the world: a quiet ripple there, once. */
+export function feedback(kind: Feedback["kind"], x: number, y: number, z: number) {
+  useGameStore.setState({ feedback: { kind, at: [x, y, z], seq: (useGameStore.getState().feedback?.seq ?? 0) + 1 } });
 }
 
 export function setPlayer(slot: PlayerSlot, conn: PlayerConn) {

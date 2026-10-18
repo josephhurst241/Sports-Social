@@ -1,8 +1,7 @@
 import { Vector3 } from "three";
 import type { PlayerSlot } from "@/lib/net/protocol";
 import { sendResult } from "@/lib/net/host";
-import { narrate } from "@/lib/narrator/events";
-import { playerName, useGameStore } from "@/store/gameStore";
+import { feedback, playerName, useGameStore } from "@/store/gameStore";
 
 // Table layout, meters. Origin is the table center on the floor, the long
 // axis along Z. Player 1 stands at +Z facing -Z, the opponent at -Z facing +Z.
@@ -43,10 +42,6 @@ export const game = {
   pendingAssist: null as PlayerSlot | null,
   /** Points played this game, for switching serve every two. */
   pointsPlayed: 0,
-  /** Each player's furthest behind this game, for calling a comeback. */
-  deficit: [0, 0] as [number, number],
-  /** Who the narrator last called match point for (null after deuce), so it is called when it arises, not every point. */
-  calledMatchPoint: null as PlayerSlot | null,
   /** Ball state copied out of physics each frame (world space). */
   ballPos: new Vector3(0, 1, 0),
   ballVel: new Vector3(),
@@ -76,51 +71,17 @@ export function onBallTouch(what: "table" | "net", z: number) {
   if (game.lastHitter !== null && Math.sign(z) === (game.lastHitter === 0 ? -1 : 1)) game.farBounces++;
 }
 
-/** Rallies this long or longer are worth a word from the narrator. */
-const LONG_RALLY = 8;
-/** Coming back from this many points down is a comeback. */
-const COMEBACK = 5;
-
-/** Ends the rally: scores it, sets the callout, tells the narrator, and picks the next server. */
+/** Ends the rally: scores it, sets the callout and picks the next server. */
 export function endRally(winner: PlayerSlot, reason: string) {
   const pp = useGameStore.getState().pingpong;
   const score = [...pp.score] as [number, number];
   score[winner]++;
-  const name = (slot: PlayerSlot) => (slot === 1 && pp.cpu ? "the CPU" : playerName(slot));
   const Name = (slot: PlayerSlot) => (slot === 1 && pp.cpu ? "CPU" : playerName(slot));
   const lead = Math.abs(score[0] - score[1]);
   const over = Math.max(...score) >= POINTS_TO_WIN && lead >= 2;
   const text = over
     ? `${Name(winner)} wins ${Math.max(...score)}–${Math.min(...score)}`
     : `${reason} · ${Name(winner)} scores`;
-  const server = game.server;
-  for (const p of [0, 1] as const) game.deficit[p] = Math.max(game.deficit[p], score[1 - p] - score[p]);
-
-  // The narrator: the result, or how the point was won and where the game stands.
-  const final = `${Math.max(...score)}–${Math.min(...score)}`;
-  if (over && game.deficit[winner] >= COMEBACK) narrate({ type: "comeback", name: name(winner), from: game.deficit[winner], score: final });
-  else if (over) narrate({ type: "matchEnd", game: "pingpong", winner: name(winner), score: final });
-  else {
-    const leader: PlayerSlot = score[0] > score[1] ? 0 : 1;
-    const closing = Math.max(...score) >= POINTS_TO_WIN - 1;
-    let said = false;
-    if (pp.rally >= LONG_RALLY) {
-      narrate({ type: "longRally", name: name(winner), hits: pp.rally });
-      said = true;
-    } else if (winner === server && pp.rally === 1 && reason !== "Missed serve") {
-      // Only the serve was struck: the receiver never got a paddle on it.
-      narrate({ type: "ace", name: name(winner) });
-      said = true;
-    }
-    if (closing && lead === 0) {
-      narrate({ type: "deuce" });
-      game.calledMatchPoint = null;
-    } else if (closing && score[leader] >= POINTS_TO_WIN - 1 && game.calledMatchPoint !== leader) {
-      narrate({ type: "matchPoint", name: name(leader) });
-      game.calledMatchPoint = leader;
-    } else if (!said) narrate({ type: "point", name: name(winner) });
-  }
-
   game.pointsPlayed++;
   if (game.pointsPlayed % 2 === 0) game.server = (1 - game.server) as PlayerSlot;
   if (over) {
@@ -128,12 +89,13 @@ export function endRally(winner: PlayerSlot, reason: string) {
     sendResult(0, { game: "pingpong", score: [score[0], score[1]], opponent: pp.cpu ? "cpu" : "human", opponentName: Name(1) });
     if (!pp.cpu) sendResult(1, { game: "pingpong", score: [score[1], score[0]], opponent: "human", opponentName: Name(0) });
     game.pointsPlayed = 0;
-    game.deficit = [0, 0];
-    game.calledMatchPoint = null;
   }
+  // Make or miss, where the ball is (on the table, or wherever it went).
+  const kind = over || reason === "Clean winner" || reason === "Double bounce" ? "make" : "miss";
+  feedback(kind, game.ballPos.x, Math.max(0, Math.min(game.ballPos.y, TOP_Y)), game.ballPos.z);
   useGameStore.setState({
     pingpong: { ...pp, score: over ? [0, 0] : score },
-    callout: { text, at: performance.now() },
+    callout: { text, at: performance.now(), kind },
   });
 }
 

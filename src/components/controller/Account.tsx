@@ -13,7 +13,6 @@ import {
   type RecentGame,
 } from "@/lib/account/account";
 import type { GameResult } from "@/lib/net/protocol";
-import Leaderboard from "./Leaderboard";
 
 // The phone's account UI: a chip that reads "Sign in" or the player's name,
 // a sign-in sheet (Google, or an emailed code), and a profile sheet with the
@@ -42,7 +41,7 @@ export function AccountChip({ onOpen }: { onOpen: (sheet: "signin" | "profile") 
 }
 
 /** A sheet that rises from the bottom over the controller. */
-function Sheet({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+export function Sheet({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
   return (
     <div className="fixed inset-0 z-40 flex items-end bg-black/25" onClick={onClose} style={{ touchAction: "auto" }}>
       <div
@@ -88,7 +87,7 @@ export function SignInSheet({ onClose }: { onClose: () => void }) {
 
   return (
     <Sheet title="Sign in" onClose={onClose}>
-      <p className="mb-5 text-[15px] leading-snug text-ink-2">Keep your scores, see your best games and get on the leaderboard. You can always play as a guest.</p>
+      <p className="mb-5 text-[15px] leading-snug text-ink-2">Keep your scores and see your best games. You can always play as a guest.</p>
       <button className="w-full rounded-2xl bg-ink py-3.5 text-[17px] font-semibold text-white active:opacity-80 disabled:opacity-40" disabled={busy} onClick={() => run(signInWithGoogle)}>
         Continue with Google
       </button>
@@ -132,8 +131,6 @@ export function SignInSheet({ onClose }: { onClose: () => void }) {
         </div>
       )}
       {error && <p className="mt-4 text-center text-[15px] text-[#c0392b]">{error}</p>}
-      <h3 className="mt-8 mb-3 text-[17px] font-semibold tracking-tight">Leaderboard</h3>
-      <Leaderboard me={null} />
     </Sheet>
   );
 }
@@ -185,7 +182,6 @@ export function ProfileSheet({ onClose }: { onClose: () => void }) {
   const [name, setName] = useState(user?.name ?? "");
   const [nameNote, setNameNote] = useState<string | null>(null);
   const [career, setCareer] = useState<Awaited<ReturnType<typeof loadCareer>> | null>(null);
-  const [tab, setTab] = useState<"career" | "leaderboard">("career");
   useEffect(() => {
     loadCareer().then(setCareer);
   }, []);
@@ -194,69 +190,55 @@ export function ProfileSheet({ onClose }: { onClose: () => void }) {
 
   return (
     <Sheet title={user.name} onClose={onClose}>
-      <div className="mb-5 flex rounded-full bg-black/[0.06] p-1 text-[14px] font-semibold">
-        {(["career", "leaderboard"] as const).map((t) => (
-          <button key={t} onClick={() => setTab(t)} className={`flex-1 rounded-full py-1.5 ${tab === t ? "bg-white text-ink shadow-[0_0_0_1px_rgb(0_0_0/0.06)]" : "text-ink-2"}`}>
-            {t === "career" ? "Career" : "Leaderboard"}
-          </button>
-        ))}
-      </div>
-
-      {tab === "leaderboard" ? (
-        <Leaderboard me={user.id} />
+      {!career ? (
+        <p className="text-[15px] text-ink-3">Loading…</p>
+      ) : career.error ? (
+        <p className="text-[15px] text-[#c0392b]">{career.error}</p>
+      ) : played === 0 ? (
+        <p className="text-[15px] text-ink-2">No games yet. Finish a game and it will show up here.</p>
       ) : (
         <>
-          {!career ? (
-            <p className="text-[15px] text-ink-3">Loading…</p>
-          ) : career.error ? (
-            <p className="text-[15px] text-[#c0392b]">{career.error}</p>
-          ) : played === 0 ? (
-            <p className="text-[15px] text-ink-2">No games yet. Finish a game and it will show up here.</p>
-          ) : (
-            <>
-              <div className="mb-3 text-[15px] text-ink-2">
-                <span className="font-semibold text-ink">{played}</span> game{played === 1 ? "" : "s"} played
-              </div>
-              <div className="flex flex-col gap-2">
-                {career.stats.map((r) => (
-                  <CareerLine key={r.game} row={r} />
-                ))}
-              </div>
-              <h3 className="mt-6 mb-2 text-[13px] font-semibold text-accent-ink">Recent games</h3>
-              <ul className="divide-y divide-black/[0.06]">
-                {career.recent.map((g) => (
-                  <li key={g.id} className="flex items-center justify-between py-2.5 text-[15px]">
-                    <span>
-                      <span className="font-semibold">{GAME_LABELS[g.game]}</span>
-                      <span className="ml-2 text-ink-3">{new Date(g.played_at).toLocaleDateString()}</span>
-                    </span>
-                    <span className="tabular text-ink-2">
-                      {recentSummary(g)}
-                      {g.won !== null && <span className={`ml-2 font-semibold ${g.won ? "text-accent-ink" : "text-ink-3"}`}>{g.won ? "W" : "L"}</span>}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </>
-          )}
-
-          <h3 className="mt-6 mb-2 text-[13px] font-semibold text-accent-ink">Name on the leaderboard</h3>
-          <div className="flex gap-2">
-            <input className={field} value={name} maxLength={24} onChange={(e) => setName(e.target.value)} />
-            <button
-              className="rounded-2xl bg-accent-ink px-5 text-[15px] font-semibold text-white disabled:opacity-40"
-              disabled={!name.trim() || name.trim() === user.name}
-              onClick={async () => setNameNote((await rename(name)) ?? "Saved")}
-            >
-              Save
-            </button>
+          <div className="mb-3 text-[15px] text-ink-2">
+            <span className="font-semibold text-ink">{played}</span> game{played === 1 ? "" : "s"} played
           </div>
-          {nameNote && <p className="mt-2 text-[13px] text-ink-3">{nameNote}</p>}
-          <button className="mt-6 w-full py-2 text-[15px] font-semibold text-[#c0392b]" onClick={() => signOut()}>
-            Sign out
-          </button>
+          <div className="flex flex-col gap-2">
+            {career.stats.map((r) => (
+              <CareerLine key={r.game} row={r} />
+            ))}
+          </div>
+          <h3 className="mt-6 mb-2 text-[13px] font-semibold text-accent-ink">Recent games</h3>
+          <ul className="divide-y divide-black/[0.06]">
+            {career.recent.map((g) => (
+              <li key={g.id} className="flex items-center justify-between py-2.5 text-[15px]">
+                <span>
+                  <span className="font-semibold">{GAME_LABELS[g.game]}</span>
+                  <span className="ml-2 text-ink-3">{new Date(g.played_at).toLocaleDateString()}</span>
+                </span>
+                <span className="tabular text-ink-2">
+                  {recentSummary(g)}
+                  {g.won !== null && <span className={`ml-2 font-semibold ${g.won ? "text-accent-ink" : "text-ink-3"}`}>{g.won ? "W" : "L"}</span>}
+                </span>
+              </li>
+            ))}
+          </ul>
         </>
       )}
+
+      <h3 className="mt-6 mb-2 text-[13px] font-semibold text-accent-ink">Your name</h3>
+      <div className="flex gap-2">
+        <input className={field} value={name} maxLength={24} onChange={(e) => setName(e.target.value)} />
+        <button
+          className="rounded-2xl bg-accent-ink px-5 text-[15px] font-semibold text-white disabled:opacity-40"
+          disabled={!name.trim() || name.trim() === user.name}
+          onClick={async () => setNameNote((await rename(name)) ?? "Saved")}
+        >
+          Save
+        </button>
+      </div>
+      {nameNote && <p className="mt-2 text-[13px] text-ink-3">{nameNote}</p>}
+      <button className="mt-6 w-full py-2 text-[15px] font-semibold text-[#c0392b]" onClick={() => signOut()}>
+        Sign out
+      </button>
     </Sheet>
   );
 }

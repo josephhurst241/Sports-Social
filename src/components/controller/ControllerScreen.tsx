@@ -27,7 +27,10 @@ import {
 } from "@/lib/sensors/motion";
 import { initAccount, saveResult, useAccount } from "@/lib/account/account";
 import { useGameStore } from "@/store/gameStore";
+import CalDiagram from "@/components/CalDiagram";
+import { CAL_TEXT, REPS_MIN } from "@/lib/game/calibration";
 import { AccountChip, ProfileSheet, SignInSheet, Toast } from "./Account";
+import { SettingsSheet, hapticsOn, saveSensitivity, savedSensitivity } from "./Settings";
 
 // The phone. Step 1: the room code and "Start". Step 2, one of two inputs:
 //
@@ -46,8 +49,8 @@ const MODE_KEY = "sports-social-input";
 const MOTION_HINTS: Record<string, string> = {
   hub: "Point the top of the phone at a game. Tap to select, tap again to play.",
   pingpong: "Hold it like a paddle, screen facing the table. Swing to hit. Tap to serve.",
-  bowling: "Hold the screen to pick up the ball. Swing underhand, let go to bowl.",
-  golf: "Hold it upright like a putter. Hold the screen, swing, let go to putt.",
+  bowling: "Hold the phone however is comfortable. Hold the screen, swing, let go to bowl.",
+  golf: "Hold the phone however is comfortable. Hold the screen, swing, let go to putt.",
 };
 
 function savedMode(param: string | null): InputMode {
@@ -73,7 +76,10 @@ export default function ControllerScreen() {
   const account = useAccount();
   // The test pad can stand in for a signed-in name (?sim=1&name=Ana); it saves nothing.
   const simName = sim ? params.get("name") : null;
-  const [sheet, setSheet] = useState<"signin" | "profile" | null>(null);
+  const [sheet, setSheet] = useState<"signin" | "profile" | "settings" | null>(null);
+  // This phone's Aim and Swing sensitivity (Settings), remembered here and sent to the laptop.
+  const [sens, setSens] = useState(savedSensitivity);
+  const calibration = useGameStore((s) => s.clientCalibration);
   const [toast, setToast] = useState<{ text: string; action?: "signin" } | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
   const [grip, setGrip] = useState(false);
@@ -157,6 +163,11 @@ export default function ControllerScreen() {
     link.current?.control({ t: "profile", id: user?.id ?? null, name: user?.name ?? simName ?? null });
   }, [status, account.user, simName]);
 
+  // And this phone's sensitivity, on connecting and whenever it changes.
+  useEffect(() => {
+    if (status === "connected") link.current?.control({ t: "sensitivity", aim: sens.aim, swing: sens.swing });
+  }, [status, sens]);
+
   // A finished game from the laptop: save it to the career, or invite a guest to sign in.
   const result = useGameStore((s) => s.clientResult);
   useEffect(() => {
@@ -178,6 +189,21 @@ export default function ControllerScreen() {
     <>
       {sheet === "signin" && <SignInSheet onClose={() => setSheet(null)} />}
       {sheet === "profile" && <ProfileSheet onClose={() => setSheet(null)} />}
+      {sheet === "settings" && (
+        <SettingsSheet
+          mode={mode}
+          onMode={chooseMode}
+          scene={scene}
+          sens={sens}
+          onSens={(next) => {
+            setSens(next);
+            saveSensitivity(next);
+          }}
+          onCalibrate={() => link.current?.control({ t: "calibrate" })}
+          onRecenter={() => link.current?.control({ t: "recenter" })}
+          onClose={() => setSheet(null)}
+        />
+      )}
       {toast && (
         <Toast
           text={toast.text}
@@ -246,7 +272,7 @@ export default function ControllerScreen() {
 
   // --- Motion pane input
   const setGripState = (down: boolean) => {
-    if (down && sensors.current.packet[P.GRIP] === 0) navigator.vibrate?.(8); // a tick, where supported
+    if (down && sensors.current.packet[P.GRIP] === 0 && hapticsOn()) navigator.vibrate?.(8); // a tick, where supported
     sensors.current.packet[P.GRIP] = down ? 1 : 0;
     setGrip(down);
   };
@@ -308,7 +334,26 @@ export default function ControllerScreen() {
             )}
             <AccountChip onOpen={setSheet} />
           </div>
-          <Segmented value={mode} onChange={chooseMode} />
+          {calibration && calibration.step !== "done" ? (
+            <button
+              className="panel rounded-full px-4 py-2 text-[15px] font-semibold text-ink-2 active:opacity-70"
+              onClick={() => link.current?.control({ t: "calibrate-skip" })}
+            >
+              Skip
+            </button>
+          ) : (
+            <button
+              aria-label="Settings"
+              className="panel flex h-10 w-10 items-center justify-center rounded-full text-ink-2 active:opacity-70"
+              onClick={() => setSheet("settings")}
+            >
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
+                <path d="M4 7h10M18 7h2M4 17h2M10 17h10" />
+                <circle cx="16" cy="7" r="2" />
+                <circle cx="8" cy="17" r="2" />
+              </svg>
+            </button>
+          )}
         </header>
         {localError && <p className="relative z-10 px-6 text-center text-[13px] text-ink-2">{localError}</p>}
 
@@ -332,14 +377,49 @@ export default function ControllerScreen() {
             onMouseLeave={() => fromMouse(false)}
           >
             <div />
-            <div className="px-8 text-center">
-              <div className={`text-[34px] font-semibold tracking-tight ${grip ? "text-accent-ink" : "text-ink"}`}>
-                {waitingFor !== null ? `${names[waitingFor]}'s turn` : grip ? "Gripping" : "Touch to grip"}
+            {calibration ? (
+              // Calibration: what to do now, and how far along (the laptop measures).
+              <div className="w-full px-8 text-center">
+                <div className="text-[13px] font-semibold text-accent-ink">Calibrating motion</div>
+                {calibration.step !== "done" && <CalDiagram game={calibration.game} step={calibration.step} size={170} />}
+                <div className="mt-1 text-[30px] font-semibold tracking-tight">{CAL_TEXT[calibration.game][calibration.step].title}</div>
+                <div className="mt-2 text-[17px] leading-snug text-ink-2">{CAL_TEXT[calibration.game][calibration.step].hint}</div>
+                {calibration.waiting ? (
+                  // Each step starts only when the player is ready. Its touches stay
+                  // off the pane, so tapping it is never a grip or a gesture.
+                  <button
+                    className="panel-ink mt-7 rounded-full px-10 py-3.5 text-[19px] font-semibold active:opacity-80"
+                    onTouchStart={(e) => e.stopPropagation()}
+                    onTouchEnd={(e) => e.stopPropagation()}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onMouseUp={(e) => e.stopPropagation()}
+                    onClick={() => link.current?.control({ t: "calibrate-ready" })}
+                  >
+                    Ready
+                  </button>
+                ) : calibration.step === "action" ? (
+                  // One dot per rep: three at least, more until they are consistent.
+                  <div className="mt-6 flex justify-center gap-2">
+                    {Array.from({ length: Math.max(REPS_MIN, calibration.reps + calibration.needed) }, (_, i) => (
+                      <span key={i} className={`h-3 w-3 rounded-full ${i < calibration.reps ? "bg-accent-ink" : "bg-black/15"}`} />
+                    ))}
+                  </div>
+                ) : calibration.step !== "done" ? (
+                  <div className="mx-auto mt-6 h-1.5 w-48 overflow-hidden rounded-full bg-black/10">
+                    <div className="h-full rounded-full bg-accent-ink transition-[width] duration-150" style={{ width: `${calibration.progress * 100}%` }} />
+                  </div>
+                ) : null}
               </div>
-              <div className="mt-3 text-[17px] leading-snug text-ink-2">
-                {waitingFor !== null ? "You're up next. Watch the laptop." : (MOTION_HINTS[scene] ?? MOTION_HINTS.hub)}
+            ) : (
+              <div className="px-8 text-center">
+                <div className={`text-[34px] font-semibold tracking-tight ${grip ? "text-accent-ink" : "text-ink"}`}>
+                  {waitingFor !== null ? `${names[waitingFor]}'s turn` : grip ? "Gripping" : "Touch to grip"}
+                </div>
+                <div className="mt-3 text-[17px] leading-snug text-ink-2">
+                  {waitingFor !== null ? "You're up next. Watch the laptop." : (MOTION_HINTS[scene] ?? MOTION_HINTS.hub)}
+                </div>
               </div>
-            </div>
+            )}
             <div className="text-center text-[13px] leading-relaxed text-ink-2">
               Two fingers: recenter
               {scene !== "hub" && (
@@ -451,7 +531,7 @@ function HoldButton({
       onPointerDown={(e) => {
         e.currentTarget.setPointerCapture?.(e.pointerId);
         setDown(true);
-        navigator.vibrate?.(6);
+        if (hapticsOn()) navigator.vibrate?.(6);
         onDown();
       }}
       onPointerUp={() => {

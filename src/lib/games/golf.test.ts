@@ -56,7 +56,7 @@ test("there is no hard cutoff: the drop speed is the boundary", () => {
 
 test("a lip-out turns more and keeps less speed the closer it came to dropping", () => {
   const glancing = cupOutcome(2.4, 0.04);
-  const deep = cupOutcome(1.6, 0.04);
+  const deep = cupOutcome(1.7, 0.04);
   assert.equal(glancing.kind, "lip");
   assert.equal(deep.kind, "lip");
   assert.ok(deep.turn > glancing.turn);
